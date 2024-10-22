@@ -1,0 +1,21 @@
+name: image-captioning-project
+channels:
+  - pytorch
+  - conda-forge
+  - anaconda
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - pytorch::pytorch
+  - pytorch::torchaudio
+  - pytorch::torchvision
+  - pip:
+    - torchvision
+  - conda-forge::spacy
+  - conda-forge::pillow
+  - conda-forge::pandas
+  - conda-forge::matplotlib
+  - conda-forge::nltk
+  - anaconda::scikit-learn
+  - conda-forge::ipykernel
