@@ -15,7 +15,7 @@ import nltk
 
 from models.base_model import EncoderCNN, DecoderRNN
 from data.dataset import FlickrDataset, collate_fn
-from utils import tokenize, build_vocab, captions_to_sequences, prepare_image2captions
+from utils import load_glove_embeddings, captions_to_sequences, prepare_image2captions, build_vocab
 from evaluate import calculate_bleu_score, calculate_meteor_score, calculate_cider_score, evaluate
 
 nltk.download('punkt')
@@ -27,32 +27,30 @@ random.seed(42)
 np.random.seed(42)
 
 def main():
-    # Argument parsing
     parser = argparse.ArgumentParser(description='Train image captioning model.')
-    parser.add_argument('--dataset', type=str, required=True, choices=['Flickr8k', 'Flickr30k'],
-                        help='Specify which dataset to use: flickr8k or flickr30k')
+    parser.add_argument('--dataset', type=str, required=True, choices=['Flickr8k', 'Flickr30k'])
     args = parser.parse_args()
 
     # Paths
     dataset_dir = f'./flickr_data/{args.dataset}_Dataset/Images'
     captions_file = f'./flickr_data/{args.dataset}_Dataset/captions.txt'
     image_dir = dataset_dir
+    glove_path = "./glove/glove.6B.200d.txt" 
 
     # Load captions
-    caption_df = pd.read_csv(captions_file)
-    caption_df.dropna(inplace=True)
-    caption_df.drop_duplicates(inplace=True)
-
-    # Group captions
-    image_captions = {}
-    for idx, row in caption_df.iterrows():
-        image_captions.setdefault(row['image'], []).append(row['caption'])
+    caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
+    image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
 
     # Build vocabulary
-    word2idx, idx2word = build_vocab(image_captions, vocab_size=5000)
+    vocab_size = 5000
+    embed_size = 200
+    word2idx, idx2word = build_vocab(image_captions, vocab_size=vocab_size)
+
+    # Load GloVe embeddings based on the vocabulary created
+    embedding_matrix = load_glove_embeddings(glove_path, word2idx, vocab_size, embed_size)
 
     # Convert captions to sequences
-    captions_seqs, _ = captions_to_sequences(image_captions, word2idx)
+    captions_seqs = captions_to_sequences(image_captions, word2idx)
 
     # Transforms
     train_transform = transforms.Compose([
@@ -62,14 +60,12 @@ def main():
         transforms.RandomRotation(15),
         transforms.ColorJitter(),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), 
-                             (0.229, 0.224, 0.225))
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
     val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), 
-                             (0.229, 0.224, 0.225))
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
 
     # Split data
@@ -89,8 +85,8 @@ def main():
     print(f'Using device: {device}')
 
     # Models
-    encoder = EncoderCNN(embed_size=256).to(device)
-    decoder = DecoderRNN(embed_size=256, hidden_size=512, vocab_size=len(word2idx), num_layers=2).to(device)
+    encoder = EncoderCNN(embed_size=200).to(device)
+    decoder = DecoderRNN(embed_size=200, hidden_size=512, vocab_size=len(word2idx), embedding_matrix=embedding_matrix, num_layers=2).to(device)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss(ignore_index=word2idx['<pad>'])
@@ -135,6 +131,7 @@ def main():
 
             # Loss
             loss = criterion(outputs, targets)
+
 
             # Backward and optimize
             optimizer.zero_grad()
