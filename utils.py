@@ -1,4 +1,5 @@
 import re
+import numpy as np
 from collections import Counter
 
 def tokenize(text):
@@ -45,26 +46,36 @@ def build_vocab(image_captions, vocab_size=5000):
 
     return word2idx, idx2word
 
-def captions_to_sequences(image_captions, word2idx):
-    """
-    Converts captions to sequences of word indices.
-    """
-    captions_seqs = {}
-    max_length = 0  # Keep track of the maximum caption length
+def load_glove_embeddings(glove_path, word2idx, vocab_size, embedding_dim=200):
+    """Loads GloVe embeddings and builds an embedding matrix for the given vocabulary."""
+    embeddings_index = {}
+    with open(glove_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            values = line.split()
+            word = values[0]
+            coefs = np.asarray(values[1:], dtype='float32')
+            embeddings_index[word] = coefs
 
-    for img_name, captions in image_captions.items():
-        seqs = []
-        for caption in captions:
-            # Tokenize the caption and add <start> and <end> tokens
-            tokens = ['<start>'] + tokenize(caption) + ['<end>']
-            # Convert tokens to indices, use <unk> if word not in vocabulary
-            seq = [word2idx.get(token, word2idx['<unk>']) for token in tokens]
-            seqs.append(seq)
-            # Update the maximum caption length
-            max_length = max(max_length, len(seq))
-        captions_seqs[img_name] = seqs
+    # Initialize embedding matrix with zeros for OOV (out-of-vocabulary) words
+    embedding_matrix = np.zeros((vocab_size, embedding_dim))
 
-    return captions_seqs, max_length
+    # Fill embedding matrix for words in vocabulary (word2idx)
+    for word, idx in word2idx.items():
+        if word in embeddings_index:
+            embedding_matrix[idx] = embeddings_index[word]
+        # OOV words will have embedding vectors of zeros (already handled by np.zeros)
+
+    return embedding_matrix
+
+def captions_to_sequences(captions, word2idx):
+    """Converts captions to sequences of word indices."""
+    sequences = {}
+    for img_name, captions_list in captions.items():
+        sequences[img_name] = [
+            [word2idx.get(word, word2idx["<unk>"]) for word in ["<start>"] + tokenize(caption) + ["<end>"]]
+            for caption in captions_list
+        ]
+    return sequences
 
 def prepare_image2captions(image_ids, captions_seqs, idx2word):
     """

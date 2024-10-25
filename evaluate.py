@@ -20,7 +20,7 @@ def evaluate(encoder, decoder, data_loader, criterion, word2idx, device):
             images = images.to(device)
             captions = captions.to(device)
             lengths = torch.tensor(lengths)
-            adjusted_lengths = lengths - 1  # Adjust lengths for excluding the last token
+            adjusted_lengths = lengths - 1
 
             targets = nn.utils.rnn.pack_padded_sequence(
                 captions[:, 1:], adjusted_lengths, batch_first=True, enforce_sorted=False
@@ -51,20 +51,15 @@ def calculate_bleu_score(encoder, decoder, image_dir, image_ids, image2captions,
 
     with torch.no_grad():
         for img_id in image_ids:
-            # Load and preprocess the image
             img_path = os.path.join(image_dir, img_id)
             image = Image.open(img_path).convert('RGB')
             image = transform(image).unsqueeze(0).to(device)
-            # Generate caption
             features = encoder(image)
             end_token_idx = word2idx['<end>']
             sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
-            # Convert word indices to words
             sampled_caption = [idx2word.get(word_id, '<unk>') for word_id in sampled_ids]
-            # Remove special tokens
             sampled_caption = [word.lower() for word in sampled_caption if word not in ['<start>', '<end>', '<pad>']]
 
-            # Append hypothesis and references
             hypotheses.append(sampled_caption)
             ref_captions = image2captions[img_id]
             references.append(ref_captions)
@@ -131,13 +126,16 @@ def calculate_cider_score(encoder, decoder, image_dir, image_ids, image2captions
             img_path = os.path.join(image_dir, img_id)
             image = Image.open(img_path).convert('RGB')
             image = transform(image).unsqueeze(0).to(device)
+
             # Generate caption
             features = encoder(image)
             end_token_idx = word2idx['<end>']
             sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+
             # Convert word indices to words
             sampled_caption = [idx2word.get(word_id, '<unk>') for word_id in sampled_ids]
-            # Remove special tokens
+
+            # Remove special tokens and lowercase the words
             sampled_caption = [word.lower() for word in sampled_caption if word not in ['<start>', '<end>', '<pad>']]
             sampled_caption_str = ' '.join(sampled_caption)
 
@@ -147,15 +145,16 @@ def calculate_cider_score(encoder, decoder, image_dir, image_ids, image2captions
                 for ref in image2captions[img_id]
             ]
 
-            # Assign to gts and res
-            gts[img_id] = ref_captions
+            # Assign to gts and res (formatted for CIDEr scorer)
+            gts[img_id] = [{'caption': ' '.join(ref)} for ref in image2captions[img_id]]
             res[img_id] = [{'caption': sampled_caption_str}]
 
-    # Tokenize captions
+    # Tokenize captions (gts = reference captions, res = generated captions)
     gts = tokenizer.tokenize(gts)
     res = tokenizer.tokenize(res)
 
     # Compute CIDEr score
     cider_scorer = Cider()
     cider_score, _ = cider_scorer.compute_score(gts, res)
+
     return cider_score

@@ -7,35 +7,32 @@ from sklearn.model_selection import train_test_split
 import argparse
 
 from models.base_model import EncoderCNN, DecoderRNN
-from utils import build_vocab, captions_to_sequences, prepare_image2captions
+from utils import build_vocab, captions_to_sequences, prepare_image2captions, load_glove_embeddings
 
 def main():
     # Argument parsing
-    parser = argparse.ArgumentParser(description='Train image captioning model.')
+    parser = argparse.ArgumentParser(description='Test image captioning model.')
     parser.add_argument('--dataset', type=str, required=True, choices=['Flickr8k', 'Flickr30k'],
-                        help='Specify which dataset to use: flickr8k or flickr30k')
+                        help='Specify which dataset to use: Flickr8k or Flickr30k')
     args = parser.parse_args()
 
     # Paths
     dataset_dir = f'./flickr_data/{args.dataset}_Dataset/Images'
     captions_file = f'./flickr_data/{args.dataset}_Dataset/captions.txt'
     image_dir = dataset_dir
+    glove_path = "./glove/glove.6B.200d.txt"  # Make sure this path is correct
 
-    # Load captions
-    caption_df = pd.read_csv(captions_file)
-    caption_df.dropna(inplace=True)
-    caption_df.drop_duplicates(inplace=True)
+    # Prepare captions and build vocabulary
+    caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
+    image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
 
-    # Group captions
-    image_captions = {}
-    for idx, row in caption_df.iterrows():
-        image_captions.setdefault(row['image'], []).append(row['caption'])
-
-    # Build vocabulary
-    word2idx, idx2word = build_vocab(image_captions, vocab_size=5000)
+    # Build vocabulary and load GloVe embeddings
+    vocab_size = 5000
+    embed_size = 200
+    word2idx, idx2word, embedding_matrix = load_glove_embeddings(glove_path, image_captions, vocab_size, embed_size)
 
     # Convert captions to sequences
-    captions_seqs, _ = captions_to_sequences(image_captions, word2idx)
+    captions_seqs = captions_to_sequences(image_captions, word2idx)
 
     # Transforms
     transform = transforms.Compose([
@@ -57,12 +54,12 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Models
-    encoder = EncoderCNN(embed_size=256).to(device)
-    decoder = DecoderRNN(embed_size=256, hidden_size=512, vocab_size=len(word2idx), num_layers=2).to(device)
+    encoder = EncoderCNN(embed_size=embed_size).to(device)
+    decoder = DecoderRNN(embed_size=embed_size, hidden_size=512, vocab_size=len(word2idx), embedding_matrix=embedding_matrix, num_layers=2).to(device)
 
     # Load trained models from the 'models/' directory
-    encoder.load_state_dict(torch.load('models/base_model_encoder.pth', weights_only=True))
-    decoder.load_state_dict(torch.load('models/base_model_decoder.pth', weights_only=True))
+    encoder.load_state_dict(torch.load('models/base_model_encoder.pth', map_location=device, weights_only=True))
+    decoder.load_state_dict(torch.load('models/base_model_decoder.pth', map_location=device, weights_only=True))
 
     encoder.eval()
     decoder.eval()
