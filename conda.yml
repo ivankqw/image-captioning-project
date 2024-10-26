@@ -15,6 +15,7 @@ dependencies:
   - conda-forge::pandas
   - conda-forge::matplotlib
   - conda-forge::nltk
+  - conda-forge::pre_commit
   - anaconda::scikit-learn
   - conda-forge::ipykernel
   - conda-forge::jpeg
