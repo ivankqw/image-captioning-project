@@ -13,8 +13,19 @@ Or if you already have the conda env, you can update it by running this:
 ```bash
 conda env update --file conda.yml --prune
 ```
+<<<<<<< HEAD
 
 Download the Flickr8k dataset
 ```bash
 sh download.sh
+=======
+To download the Flickr8k dataset
+```bash
+sh download_flickr8k.sh
+```
+
+To download the Flickr30k dataset
+```bash
+sh download_flickr30k.sh
+>>>>>>> 730126c1dc1c58afc8b93e324cbef81c83b282c3
 ```

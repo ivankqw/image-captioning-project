@@ -10,8 +10,6 @@ dependencies:
   - pytorch::pytorch
   - pytorch::torchaudio
   - pytorch::torchvision
-  - pip:
-    - torchvision
   - conda-forge::spacy
   - conda-forge::pillow
   - conda-forge::pandas
@@ -19,3 +17,7 @@ dependencies:
   - conda-forge::nltk
   - anaconda::scikit-learn
   - conda-forge::ipykernel
+  - conda-forge::jpeg
+  - pip:
+    - torchvision
+    - pycocoevalcap
