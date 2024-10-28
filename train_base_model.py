@@ -97,7 +97,7 @@ def main():
     val_image2captions = prepare_image2captions(val_images, captions_seqs, idx2word)
 
     # Training loop
-    num_epochs = 2
+    num_epochs = 12
     train_losses = []
     val_losses = []
     val_bleu_scores = []

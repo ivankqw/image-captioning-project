@@ -26,10 +26,13 @@ def main():
     caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
     image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
 
-    # Build vocabulary and load GloVe embeddings
+    # Build vocabulary from captions
     vocab_size = 5000
+    word2idx, idx2word = build_vocab(image_captions, vocab_size)  # Assume build_vocab is available
+
+    # Load GloVe embeddings
     embed_size = 200
-    word2idx, idx2word, embedding_matrix = load_glove_embeddings(glove_path, image_captions, vocab_size, embed_size)
+    embedding_matrix = load_glove_embeddings(glove_path, word2idx, vocab_size, embed_size)
 
     # Convert captions to sequences
     captions_seqs = captions_to_sequences(image_captions, word2idx)
