@@ -28,3 +28,33 @@ To download the Flickr30k dataset
 ```bash
 sh download_flickr30k.sh
 ```
+
+## Usage
+
+Training
+
+Change the --model accordingly:
+1. base_model
+2. transfer_learning_model
+3. transformer_model
+4. advance_transformer_model
+
+Train the model on Flickr8k dataset:
+```bash
+python main.py --model base_model --mode train --dataset Flickr8k 
+```
+
+Train the model on Flickr30k dataset:
+```bash
+python main.py --model base_model --mode train --dataset Flickr30k
+```
+
+Test the model on Flickr8k dataset:
+```bash
+python main.py --model base_model --mode test --dataset Flickr8k
+```
+
+Test the model on Flickr30k dataset:
+```bash
+python main.py --model base_model --mode test --dataset Flickr30k
+```
