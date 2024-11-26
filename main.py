@@ -1,19 +1,14 @@
 import argparse
+import os
 import subprocess
 import sys
-import os
 
 from nltk import download
 
-
 def main():
-    # Set PYTHONPATH to current working directory
-    os.environ["PYTHONPATH"] = os.getcwd()
-
     # Download NLTK data
     download("punkt")
     download("wordnet")
-    download('punkt_tab')
 
     parser = argparse.ArgumentParser(
         description="Run training or testing for a specified model."
@@ -23,10 +18,10 @@ def main():
         type=str,
         required=True,
         choices=[
-            "base_model",
-            "transfer_learning_model",
-            "transformer_model",
-            "advanced_transformer_model",
+            "model_1_baseline_cnn_lstm",
+            "model_2_image_segmentation_lstm",
+            "model_3_attention_image_segmentation_lstm",
+            "model_4_vision_transformer",
         ],
         help="Specify the model to run.",
     )
@@ -48,7 +43,6 @@ def main():
     script_path = f"models/{args.model}/{args.mode}.py"
     cmd = [sys.executable, script_path, "--dataset", args.dataset] + unknown
     subprocess.run(cmd)
-
 
 if __name__ == "__main__":
     main()

@@ -5,13 +5,22 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-
 class FlickrDataset(Dataset):
     def __init__(self, image_dir, image_ids, captions_seqs, transform=None):
+        """
+        Custom Dataset for loading Flickr images and captions.
+        Args:
+            image_dir: Directory with all the images.
+            image_ids: List of image filenames.
+            captions_seqs: Dictionary mapping image filenames to caption sequences.
+            transform: Optional transform to be applied on a sample.
+        """
         self.image_dir = image_dir
         self.transform = transform
         self.images = []
         self.captions = []
+
+        # Prepare the dataset by pairing images with their captions
         for img_id in image_ids:
             captions = captions_seqs[img_id]
             for caption_seq in captions:
@@ -31,10 +40,12 @@ class FlickrDataset(Dataset):
         caption_seq = torch.tensor(caption_seq)
         return image, caption_seq
 
-
-def collate_fn(data):
-    data.sort(key=lambda x: len(x[1]), reverse=True)
-    images, captions = zip(*data)
+def collate_fn(batch):
+    """
+    Custom collate function to handle variable length captions.
+    """
+    batch.sort(key=lambda x: len(x[1]), reverse=True)
+    images, captions = zip(*batch)
     images = torch.stack(images, 0)
     lengths = [len(cap) for cap in captions]
     targets = torch.zeros(len(captions), max(lengths)).long()
@@ -43,8 +54,10 @@ def collate_fn(data):
         targets[i, :end] = cap[:end]
     return images, targets, lengths
 
-
 def get_transform(train=True):
+    """
+    Get image transformations for training or evaluation.
+    """
     if train:
         transform = transforms.Compose(
             [
@@ -52,7 +65,10 @@ def get_transform(train=True):
                 transforms.RandomCrop(224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet means
+                    std=[0.229, 0.224, 0.225],   # ImageNet stds
+                ),
             ]
         )
     else:
@@ -60,7 +76,10 @@ def get_transform(train=True):
             [
                 transforms.Resize((224, 224)),
                 transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet means
+                    std=[0.229, 0.224, 0.225],   # ImageNet stds
+                ),
             ]
         )
     return transform

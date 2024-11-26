@@ -33,28 +33,28 @@ sh download_flickr30k.sh
 
 Training
 
-Change the --model accordingly:
-1. base_model
-2. transfer_learning_model
-3. transformer_model
-4. advance_transformer_model
+Change the --model arg accordingly:
+1. model_1_baseline_cnn_lstm - python main.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr8k 
+2. model_2_image_segmentation_lstm - python main.py --model model_2_image_segmentation_lstm --mode train --dataset Flickr8k 
+3. model_3_attention_image_segmentation_lstm - python main.py --model model_3_attention_image_segmentation_lstm --mode train --dataset Flickr8k 
+4. model_4_vision_transformer - python main.py --model model_4_vision_transformer --mode train --dataset Flickr8k 
 
-Train the model on Flickr8k dataset:
+To train the model on Flickr8k dataset:
 ```bash
-python main.py --model base_model --mode train --dataset Flickr8k 
+python main.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr8k 
 ```
 
-Train the model on Flickr30k dataset:
+To train the model on Flickr30k dataset:
 ```bash
-python main.py --model base_model --mode train --dataset Flickr30k
+python main.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr30k
 ```
 
-Test the model on Flickr8k dataset:
+To train the model on Flickr8k dataset:
 ```bash
-python main.py --model base_model --mode test --dataset Flickr8k
+python main.py --model model_1_baseline_cnn_lstm --mode test --dataset Flickr8k
 ```
 
-Test the model on Flickr30k dataset:
+To train the model on Flickr30k dataset:
 ```bash
-python main.py --model base_model --mode test --dataset Flickr30k
+python main.py --model model_1_baseline_cnn_lstm --mode test --dataset Flickr30k
 ```

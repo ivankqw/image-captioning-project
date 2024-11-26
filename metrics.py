@@ -8,31 +8,42 @@ from nltk.translate.meteor_score import meteor_score
 from PIL import Image
 
 
-def evaluate(encoder, decoder, data_loader, criterion, word2idx, device):
+def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
+    """
+    Evaluate the model on the validation set.
+    Args:
+        encoder: Encoder model.
+        decoder: Decoder model.
+        data_loader: DataLoader for the validation set.
+        criterion: Loss function.
+        device: Computation device (CPU or GPU).
+        vocab_size: Size of the vocabulary.
+    Returns:
+        average_loss: Average validation loss.
+    """
     encoder.eval()
     decoder.eval()
     total_loss = 0
     total_samples = 0
     with torch.no_grad():
-        for images, captions, lengths in data_loader:
+        for images, captions, _ in data_loader:
             images = images.to(device)
             captions = captions.to(device)
-            lengths = torch.tensor(lengths)
-            adjusted_lengths = lengths - 1
-            targets = nn.utils.rnn.pack_padded_sequence(
-                captions[:, 1:],
-                adjusted_lengths,
-                batch_first=True,
-                enforce_sorted=False,
-            )[0]
+
+            # Forward pass
             features = encoder(images)
             outputs = decoder(features, captions)
-            outputs = nn.utils.rnn.pack_padded_sequence(
-                outputs, adjusted_lengths, batch_first=True, enforce_sorted=False
-            )[0]
+
+            # Prepare targets
+            targets = captions[:, 1:]  # Exclude the first <start> token
+            outputs = outputs.reshape(-1, vocab_size)
+            targets = targets.reshape(-1)
+
+            # Compute loss
             loss = criterion(outputs, targets)
             total_loss += loss.item()
             total_samples += 1
+
     average_loss = total_loss / total_samples
     return average_loss
 
