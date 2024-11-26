@@ -1,14 +1,20 @@
 import argparse
 import subprocess
 import sys
+import os
 
 from nltk import download
 
 
 def main():
+    # Set PYTHONPATH to current working directory
+    os.environ["PYTHONPATH"] = os.getcwd()
+
     # Download NLTK data
     download("punkt")
     download("wordnet")
+    download('punkt_tab')
+
     parser = argparse.ArgumentParser(
         description="Run training or testing for a specified model."
     )

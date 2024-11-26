@@ -53,6 +53,7 @@ def main():
     _, val_images, test_images = get_splits(image_names, test_size=0.3)
     test_image2captions = prepare_image2captions(test_images, captions_seqs, idx2word)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
     # Models
     encoder = EncoderCNN(embed_size=embed_size).to(device)
@@ -75,9 +76,9 @@ def main():
     for img_id in test_images[:10]:
         img_path = os.path.join(image_dir, img_id)
         image = Image.open(img_path).convert("RGB")
-        image_tensor = transform(image).unsqueeze(0).to(device)
+        image = transform(image).unsqueeze(0).to(device)
         with torch.no_grad():
-            features = encoder(image_tensor)
+            features = encoder(image)
             sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
