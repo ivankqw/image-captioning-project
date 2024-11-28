@@ -4,7 +4,7 @@ import torchvision.models as models
 from torchvision.models import ResNet50_Weights
 
 class EncoderCNN(nn.Module):
-    def __init__(self, embed_size=200):
+    def __init__(self, embed_size=256):
         super(EncoderCNN, self).__init__()
         # Load the pre-trained ResNet-50 model
         resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -82,12 +82,12 @@ class LSTM(nn.Module):
         return h_t, c_t
 
 class DecoderRNN(nn.Module):
-    def __init__(self, embed_size=200, hidden_size=512, vocab_size=5000, dropout=0.5):
+    def __init__(self, embed_size=256, hidden_size=512, vocab_size=5000, dropout=0.5):
         super(DecoderRNN, self).__init__()
         # Embedding layer to convert word indices to embeddings
         self.embedding = nn.Embedding(vocab_size, embed_size)
         # Custom LSTM cell
-        self.lstm = LSTM(embed_size, hidden_size)
+        self.lstm_cell = LSTM(embed_size, hidden_size)
         # Fully connected layer to project hidden state to vocabulary space
         self.fc = nn.Linear(hidden_size, vocab_size)
         # Dropout layer for regularization
@@ -108,10 +108,10 @@ class DecoderRNN(nn.Module):
             features: Image features from the encoder, shape (batch_size, embed_size)
             captions: Caption sequences, shape (batch_size, max_seq_length)
         Returns:
-            outputs: Predicted word distributions, shape (batch_size, max_seq_length, vocab_size)
+            outputs: Predicted word distributions, shape (batch_size, seq_len, vocab_size)
         """
         # Embed the captions (exclude the last word for teacher forcing)
-        embeddings = self.embedding(captions[:, :-1])  # Shape: (batch_size, seq_len, embed_size)
+        embeddings = self.embedding(captions[:, :-1])  # Shape: (batch_size, seq_len - 1, embed_size)
         # Concatenate image features as the first input
         embeddings = torch.cat((features.unsqueeze(1), embeddings), dim=1)
         embeddings = self.dropout(embeddings)
@@ -126,7 +126,7 @@ class DecoderRNN(nn.Module):
         # Unroll the LSTM for seq_len time steps
         for t in range(seq_len):
             x_t = embeddings[:, t, :]  # Input at time step t
-            h_t, c_t = self.lstm(x_t, h_t, c_t)  # Update hidden and cell states
+            h_t, c_t = self.lstm_cell(x_t, h_t, c_t)  # Update hidden and cell states
             output = self.fc(h_t)  # Compute output word distribution
             outputs[:, t, :] = output  # Store output
 
@@ -148,7 +148,7 @@ class DecoderRNN(nn.Module):
         c_t = torch.zeros(1, self.hidden_size).to(features.device)
 
         for _ in range(max_len):
-            h_t, c_t = self.lstm(inputs, h_t, c_t)
+            h_t, c_t = self.lstm_cell(inputs, h_t, c_t)
             outputs = self.fc(h_t)  # Compute word distribution
             predicted = outputs.argmax(1)  # Get the index with the highest probability
             sampled_ids.append(predicted.item())
