@@ -6,6 +6,9 @@ import sys
 from nltk import download
 
 def main():
+    # Set the PYTHONPATH to the current directory
+    os.environ["PYTHONPATH"] = os.getcwd()
+    
     # Download NLTK data
     download("punkt")
     download("wordnet")
