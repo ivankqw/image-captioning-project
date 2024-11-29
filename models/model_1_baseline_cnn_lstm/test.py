@@ -75,7 +75,7 @@ def main():
 
     # Split data into training, validation, and test sets
     image_names = list(image_captions.keys())
-    _, _, test_images = get_splits(image_names, test_size=0.3)
+    _, _, test_images = get_splits(image_names, test_size=0.2)
 
     # Prepare image to captions mapping for ground truth captions
     test_image2captions = prepare_image2captions(test_images, captions_seqs, idx2word)

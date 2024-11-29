@@ -64,7 +64,7 @@ def main():
 
     # Split data into training and validation sets
     image_names = list(image_captions.keys())
-    train_images, val_images, _ = get_splits(image_names, test_size=0.3)
+    train_images, val_images, _ = get_splits(image_names, test_size=0.2)
     print(f"Training samples: {len(train_images)}")
     print(f"Validation samples: {len(val_images)}")
 
