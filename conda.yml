@@ -19,6 +19,8 @@ dependencies:
   - anaconda::scikit-learn
   - conda-forge::ipykernel
   - conda-forge::jpeg
+  - anaconda::h5py
+  - conda-forge::opencv
   - pip:
     - torchvision
     - pycocoevalcap

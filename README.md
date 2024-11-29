@@ -21,12 +21,12 @@ pre-commit install
 
 To download the Flickr8k dataset
 ```bash
-sh download_flickr8k.sh
+sh scripts/download_flickr8k.sh
 ```
 
 To download the Flickr30k dataset
 ```bash
-sh download_flickr30k.sh
+sh scripts/download_flickr30k.sh
 ```
 
 ## Usage
