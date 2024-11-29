@@ -21,6 +21,10 @@ dependencies:
   - conda-forge::jpeg
   - anaconda::h5py
   - conda-forge::opencv
+  - conda-forge::uvicorn 
+  - conda-forge::fastapi
+  - conda-forge::streamlit  
+  - conda-forge::python-multipart
   - pip:
     - torchvision
     - pycocoevalcap

@@ -82,7 +82,7 @@ def convert_captions_to_sequences(image_captions, word2idx):
 
     return captions_seqs, max_length
 
-def get_splits(image_names, test_size=0.3):
+def get_splits(image_names, test_size=0.2):
     """
     Splits the dataset into training, validation, and test sets.
     Args:
@@ -99,7 +99,7 @@ def get_splits(image_names, test_size=0.3):
     )
     # Split temp set into validation and test sets
     val_images, test_images = train_test_split(
-        temp_images, test_size=0.5, random_state=42
+        temp_images, test_size=0.1, random_state=42
     )
     return train_images, val_images, test_images
 
