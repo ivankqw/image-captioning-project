@@ -232,9 +232,9 @@ class DecoderRNN(nn.Module):
 
         sampled_ids = []
         inputs = features  # Initial input is the image features
-        h_t = torch.zeros(1, self.hidden_size).to(features.device)
-        c_t = torch.zeros(1, self.hidden_size).to(features.device)
-
+        h_t = torch.zeros(1, self.hidden_size)
+        c_t = torch.zeros(1, self.hidden_size)
+        
         for _ in range(max_len):
             h_t, c_t = self.lstm_cell(inputs, h_t, c_t)
             outputs = self.fc(h_t)  # Compute word distribution

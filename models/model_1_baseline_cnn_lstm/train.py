@@ -22,6 +22,7 @@ from data.preprocessing import (
     build_vocabulary,
     convert_captions_to_sequences,
     get_splits,
+    prepare_image2captions
 )
 from model import DecoderRNN, EncoderCNN
 from metrics import (
@@ -67,7 +68,7 @@ def main():
 
     # Split data into training and validation sets
     image_names = list(image_captions.keys())
-    train_images, val_images, _ = get_splits(image_names, test_size=0.3)
+    train_images, val_images, _ = get_splits(image_names, test_size=0.2)
 
     # Create datasets and data loaders
     train_dataset = FlickrDataset(
@@ -109,17 +110,17 @@ def main():
     params = list(filter(lambda p: p.requires_grad, encoder.parameters())) + list(
         decoder.parameters()
     )
-    optimizer = optim.Adam(params, lr=1e-4)
+    optimizer = optim.Adam(params, lr=3e-4)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
 
     # Training settings
-    num_epochs = 2
+    num_epochs = 10
     total_step = len(train_loader)
     end_token_idx = word2idx["<end>"]
 
     # Prepare validation image IDs and references for metrics
     val_image_ids = val_images
-    image2captions = {img_id: image_captions[img_id] for img_id in val_image_ids}
+    image2captions = prepare_image2captions(val_image_ids, captions_seqs, idx2word)
 
     for epoch in range(num_epochs):
         start_time = time.time()
@@ -156,7 +157,7 @@ def main():
 
             total_loss += loss.item()
 
-            if i % 100 == 0:
+            if i % 300 == 0:
                 print(
                     f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss.item():.4f}"
                 )
