@@ -1,8 +1,111 @@
+from typing import OrderedDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import weight_norm
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
+from torchvision.models.detection import (
+    fasterrcnn_resnet50_fpn_v2 as fasterrcnn_resnet50_fpn,
+)
+import torchvision
+
+
+class EncoderBUAttention(nn.Module):
+    def __init__(self, device="cuda"):
+        super(EncoderBUAttention, self).__init__()
+        self.device = device
+
+        # Load the pre-trained Faster R-CNN
+        self.faster_rcnn = fasterrcnn_resnet50_fpn(weights="COCO_V1")
+        self.faster_rcnn.to(self.device)
+        self.faster_rcnn.eval()
+
+        # freeze the model
+        for param in self.faster_rcnn.parameters():
+            param.requires_grad = False
+
+    def train(self, mode=True):
+        # override the train method to prevent the model from being set to training mode
+        # this is because the Faster R-CNN model is already in eval mode
+        super(EncoderBUAttention, self).train(mode)
+        self.faster_rcnn.eval()  # set the Faster R-CNN model to eval mode
+
+    def forward(self, images):
+        batch_size = len(images)
+        conf_thresh = 0.2  # Adjust this threshold as needed
+        max_boxes = 36  # Maximum number of boxes to keep per image
+        print("Batch size:", batch_size)
+
+        # images = list(images)
+        # # Extract bottom-up features
+        # transformed_images, _ = self.faster_rcnn.transform(images)
+        # features = self.faster_rcnn.backbone(transformed_images.tensors)
+        # if isinstance(features, torch.Tensor):
+        #     features = OrderedDict([("0", features)])
+        # proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
+        # box_features = self.faster_rcnn.roi_heads.box_roi_pool(
+        #     features, proposals, transformed_images.image_sizes
+        # )
+        # box_features = self.faster_rcnn.roi_heads.box_head(box_features)
+        # print("Shape of box_features:", box_features.shape)
+        # return box_features
+        # Initialize empty lists to store features and proposals
+        all_box_features = []
+        all_proposals = []
+
+        # Process images in smaller batches
+        for start in range(0, len(images), batch_size):  # Adjust batch size as needed
+            end = start + batch_size
+            batch_images = images[start:end]
+
+            # Extract bottom-up features for the batch
+            transformed_images, _ = self.faster_rcnn.transform(batch_images)
+            features = self.faster_rcnn.backbone(transformed_images.tensors)
+            if isinstance(features, torch.Tensor):
+                features = OrderedDict([("0", features)])
+            proposals, scores = self.faster_rcnn.rpn(transformed_images, features, None)
+
+            # print type of proposals and scores
+            print("Type of proposals:", type(proposals))
+            print("Type of scores:", type(scores))
+            # convert proposals and scores to tensors
+            proposals = proposals.tensor
+            scores = scores.tensor
+
+            # Apply non-maximum suppression (NMS)
+            keep = torchvision.ops.nms(proposals, scores, iou_threshold=0.5)
+            proposals = proposals[keep]
+            scores = scores[keep]
+
+            # Keep only the best detections
+            keep_boxes = torch.where(scores >= conf_thresh)[0]
+            if len(keep_boxes) > max_boxes:
+                keep_boxes = torch.argsort(scores[keep_boxes], descending=True)[
+                    :max_boxes
+                ]
+            proposals = proposals[keep_boxes]
+
+            box_features = self.faster_rcnn.roi_heads.box_roi_pool(
+                features, proposals, transformed_images.image_sizes
+            )
+            box_features = self.faster_rcnn.roi_heads.box_head(box_features)
+
+            # Append batch features and proposals to the lists
+            all_box_features.append(box_features)
+            proposals = torch.cat(all_proposals, dim=0)
+
+        # Concatenate features and proposals from all batches
+        box_features = torch.cat(all_box_features, dim=0)
+        proposals = torch.cat(all_proposals, dim=0)
+
+        # Check shapes
+        print("Shape of box_features:", box_features.shape)
+        print("Shape of proposals:", proposals.shape)
+
+        # Compute spatial features
+        # image_sizes = [img.size for img in images]
+        # spatial_features = compute_spatial_features(proposals, image_sizes, device)
+
+        return box_features  # , spatial_features
 
 
 class Attention(nn.Module):
@@ -25,47 +128,6 @@ class Attention(nn.Module):
         return attention_weighted_encoding, alpha
 
 
-class EncoderBUAttention(nn.Module):
-    def __init__(self, embed_size=256, device="cuda"):
-        super(EncoderBUAttention, self).__init__()
-        self.device = device
-
-        # Load the pre-trained Faster R-CNN
-        self.faster_rcnn = fasterrcnn_resnet50_fpn(weights="COCO_V1")
-        self.faster_rcnn.to(self.device)
-        self.faster_rcnn.eval()
-
-        # freeze the model
-        for param in self.faster_rcnn.parameters():
-            param.requires_grad = False
-
-        self.backbone = self.faster_rcnn.backbone
-        self.rpn = self.faster_rcnn.rpn
-        self.roi_heads = self.faster_rcnn.roi_heads
-        self.transform = self.faster_rcnn.transform
-
-    def train(self, mode=True):
-        # oveeride the train method to prevent the model from being set to training mode
-        # this is because the Faster R-CNN model is already in eval mode
-        super(EncoderBUAttention, self).train(mode)
-        self.faster_rcnn.eval()  # set the Faster R-CNN model to eval mode
-
-    def forward(self, images):
-        images = list(images)
-        # Extract bottom-up features
-        transformed_images, _ = self.transform(images)
-        features = self.backbone(transformed_images.tensors)
-        proposals, _ = self.rpn(images, features, None)
-        # detections, _ = self.roi_heads(features, proposals, transformed_images.image_sizes, None)
-        box_features = self.roi_heads.box_roi_pool(
-            features, proposals, transformed_images.image_sizes
-        )
-        box_features = self.roi_heads.box_head(box_features)
-        # class_logits, box_regression = self.roi_heads.box_predictor(box_features)
-        # boxes, scores, labels = self.roi_heads.postprocess_detections(class_logits, box_regression, proposals, transformed_images.image_sizes)
-        return box_features
-
-
 class DecoderWithAttention(nn.Module):
     """
     Decoder.
@@ -77,8 +139,9 @@ class DecoderWithAttention(nn.Module):
         embed_dim,
         decoder_dim,
         vocab_size,
-        features_dim=2048,
+        features_dim=1024,
         dropout=0.5,
+        device="cuda",
     ):
         """
         :param attention_dim: size of attention network
@@ -114,6 +177,7 @@ class DecoderWithAttention(nn.Module):
             nn.Linear(decoder_dim, vocab_size)
         )  # linear layer to find scores over vocabulary
         self.init_weights()  # initialize some layers with the uniform distribution
+        self.device = device
 
     def init_weights(self):
         """
@@ -130,9 +194,9 @@ class DecoderWithAttention(nn.Module):
         :return: hidden state, cell state
         """
         h = torch.zeros(batch_size, self.decoder_dim).to(
-            device
+            self.device
         )  # (batch_size, decoder_dim)
-        c = torch.zeros(batch_size, self.decoder_dim).to(device)
+        c = torch.zeros(batch_size, self.decoder_dim).to(self.device)
         return h, c
 
     def forward(self, image_features, encoded_captions, caption_lengths):
@@ -147,18 +211,27 @@ class DecoderWithAttention(nn.Module):
         batch_size = image_features.size(0)
         vocab_size = self.vocab_size
 
+        # Print shapes of input tensors
+        print("Shape of image_features:", image_features.shape)
+        print("Shape of encoded_captions:", encoded_captions.shape)
+        print("Shape of caption_lengths:", caption_lengths.shape)
+
         # Flatten image
         image_features_mean = image_features.mean(1).to(
-            device
+            self.device
         )  # (batch_size, num_pixels, encoder_dim)
 
         # Sort input data by decreasing lengths; why? apparent below
-        caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(
-            dim=0, descending=True
-        )
+        caption_lengths, sort_ind = caption_lengths.sort(dim=0, descending=True)
         image_features = image_features[sort_ind]
         image_features_mean = image_features_mean[sort_ind]
         encoded_captions = encoded_captions[sort_ind]
+
+        # Print shapes after sorting
+        print("Shape of image_features after sorting:", image_features.shape)
+        print("Shape of image_features_mean after sorting:", image_features_mean.shape)
+        print("Shape of encoded_captions after sorting:", encoded_captions.shape)
+        print("Shape of caption_lengths after sorting:", caption_lengths.shape)
 
         # Embedding
         embeddings = self.embedding(
@@ -175,10 +248,10 @@ class DecoderWithAttention(nn.Module):
 
         # Create tensors to hold word predicion scores
         predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(
-            device
+            self.device
         )
         predictions1 = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(
-            device
+            self.device
         )
 
         # At each time-step, pass the language model's previous hidden state, the mean pooled bottom up features and
@@ -214,3 +287,165 @@ class DecoderWithAttention(nn.Module):
             predictions1[:batch_size_t, t, :] = preds1
 
         return predictions, predictions1, encoded_captions, decode_lengths, sort_ind
+
+    def sample(self, features, word_map, max_len=20, end_token_idx=None):
+        """
+        Generate captions for given image features using greedy search.
+        Args:
+            features: Image features from the encoder, shape (1, embed_size)
+            word_map: Word map dictionary
+            rev_word_map: Reverse word map dictionary
+            max_len: Maximum length of the generated caption
+            end_token_idx: Index of the <end> token
+        Returns:
+            sampled_ids: List of predicted word indices
+        """
+        sampled_ids = []
+        inputs = features  # Initial input is the image features
+        h_t = torch.zeros(1, self.decoder_dim).to(self.device)
+        c_t = torch.zeros(1, self.decoder_dim).to(self.device)
+
+        for _ in range(max_len):
+            embeddings = self.embedding(
+                torch.tensor([word_map["<start>"]], device=self.device)
+            ).squeeze(
+                1
+            )  # (1, embed_dim)
+            h1, c1 = self.top_down_attention(
+                torch.cat([h_t, inputs, embeddings], dim=1),
+                (h_t, c_t),
+            )
+            attention_weighted_encoding, _ = self.attention(inputs, h1)
+            h_t, c_t = self.language_model(
+                torch.cat([attention_weighted_encoding, h1], dim=1),
+                (h_t, c_t),
+            )
+            outputs = self.fc(h_t)  # Compute word distribution
+            predicted = outputs.argmax(1)  # Get the index with the highest probability
+            sampled_ids.append(predicted.item())
+
+            if predicted.item() == end_token_idx:
+                break  # Stop if <end> token is generated
+
+            # Prepare input for next time step
+            inputs = self.embedding(predicted)
+
+        return sampled_ids
+
+    def sample_beam(self, features, word_map, rev_word_map, beam_size=5, max_len=20):
+        """
+        Generate captions for given image features using beam search.
+        Args:
+            features: Image features from the encoder, shape (1, embed_size)
+            word_map: Word map dictionary
+            rev_word_map: Reverse word map dictionary
+            beam_size: Beam size for beam search
+            max_len: Maximum length of the generated caption
+        Returns:
+            sampled_ids: List of predicted word indices
+        """
+        k = beam_size
+        vocab_size = self.vocab_size
+
+        # Tensor to store top k previous words at each step; now they're just <start>
+        k_prev_words = torch.LongTensor([[word_map["<start>"]]] * k).to(
+            self.device
+        )  # (k, 1)
+
+        # Tensor to store top k sequences; now they're just <start>
+        seqs = k_prev_words  # (k, 1)
+
+        # Tensor to store top k sequences' scores; now they're just 0
+        top_k_scores = torch.zeros(k, 1).to(self.device)  # (k, 1)
+
+        # Lists to store completed sequences and scores
+        complete_seqs = list()
+        complete_seqs_scores = list()
+
+        # Start decoding
+        step = 1
+        h1, c1 = self.init_hidden_state(k)  # (batch_size, decoder_dim)
+        h2, c2 = self.init_hidden_state(k)
+
+        # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+        while True:
+            embeddings = self.embedding(k_prev_words).squeeze(1)  # (s, embed_dim)
+            h1, c1 = self.top_down_attention(
+                torch.cat(
+                    [h2, features.expand(k, self.features_dim), embeddings], dim=1
+                ),
+                (h1, c1),
+            )  # (batch_size_t, decoder_dim)
+            attention_weighted_encoding = self.attention(
+                features.expand(k, self.features_dim), h1
+            )
+            h2, c2 = self.language_model(
+                torch.cat([attention_weighted_encoding, h1], dim=1), (h2, c2)
+            )
+
+            scores = self.fc(h2)  # (s, vocab_size)
+            scores = F.log_softmax(scores, dim=1)
+
+            # Add
+            scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
+
+            # For the first step, all k points will have the same scores (since same k previous words, h, c)
+            if step == 1:
+                top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
+            else:
+                # Unroll and find top scores, and their unrolled indices
+                top_k_scores, top_k_words = scores.view(-1).topk(
+                    k, 0, True, True
+                )  # (s)
+
+            # Convert unrolled indices to actual indices of scores
+            prev_word_inds = top_k_words / vocab_size  # (s)
+            next_word_inds = top_k_words % vocab_size  # (s)
+
+            # Add new words to sequences
+            seqs = torch.cat(
+                [seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1
+            )  # (s, step+1)
+
+            # Which sequences are incomplete (didn't reach <end>)?
+            incomplete_inds = [
+                ind
+                for ind, next_word in enumerate(next_word_inds)
+                if next_word != word_map["<end>"]
+            ]
+            complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
+
+            # Set aside complete sequences
+            if len(complete_inds) > 0:
+                complete_seqs.extend(seqs[complete_inds].tolist())
+                complete_seqs_scores.extend(top_k_scores[complete_inds])
+            k -= len(complete_inds)  # reduce beam length accordingly
+
+            # Proceed with incomplete sequences
+            if k == 0:
+                break
+            seqs = seqs[incomplete_inds]
+            h1 = h1[prev_word_inds[incomplete_inds]]
+            c1 = c1[prev_word_inds[incomplete_inds]]
+            h2 = h2[prev_word_inds[incomplete_inds]]
+            c2 = c2[prev_word_inds[incomplete_inds]]
+            top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
+            k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
+
+            # Break if things have been going on too long
+            if step > 50:
+                break
+            step += 1
+
+        i = complete_seqs_scores.index(max(complete_seqs_scores))
+        seq = complete_seqs[i]
+
+        # Hypotheses
+        hypothesis = [
+            rev_word_map[w]
+            for w in seq
+            if w not in {word_map["<start>"], word_map["<end>"], word_map["<pad>"]}
+        ]
+        hypothesis = " ".join(hypothesis)
+
+        return hypothesis

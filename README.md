@@ -35,6 +35,7 @@ Training
 
 Change the --model arg accordingly:
 1. model_1_baseline_cnn_lstm - python run.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr8k 
+1.5. model_1.5_butd_attention - python run.py --model model_1.5_butd_attention --mode train --dataset Flickr8k 
 2. model_2_image_segmentation_lstm - python run.py --model model_2_image_segmentation_lstm --mode train --dataset Flickr8k 
 3. model_3_attention_image_segmentation_lstm - python run.py --model model_3_attention_image_segmentation_lstm --mode train --dataset Flickr8k 
 4. model_4_vision_transformer - python run.py --model model_4_vision_transformer --mode train --dataset Flickr8k 

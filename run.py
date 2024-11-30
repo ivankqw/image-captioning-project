@@ -5,10 +5,11 @@ import sys
 
 from nltk import download
 
+
 def main():
     # Set the PYTHONPATH to the current directory
     os.environ["PYTHONPATH"] = os.getcwd()
-    
+
     # Download NLTK data
     download("punkt")
     download("wordnet")
@@ -22,6 +23,7 @@ def main():
         required=True,
         choices=[
             "model_1_baseline_cnn_lstm",
+            "model_1.5_butd_attention",
             "model_2_image_segmentation_lstm",
             "model_3_attention_image_segmentation_lstm",
             "model_4_vision_transformer",
@@ -46,6 +48,7 @@ def main():
     script_path = f"models/{args.model}/{args.mode}.py"
     cmd = [sys.executable, script_path, "--dataset", args.dataset] + unknown
     subprocess.run(cmd)
+
 
 if __name__ == "__main__":
     main()

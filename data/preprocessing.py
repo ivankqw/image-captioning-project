@@ -3,7 +3,9 @@ from collections import Counter
 from sklearn.model_selection import train_test_split
 
 import nltk
-nltk.download('punkt')  # Ensure the Punkt tokenizer is downloaded
+
+nltk.download("punkt")  # Ensure the Punkt tokenizer is downloaded
+
 
 def tokenize(text):
     """
@@ -16,6 +18,7 @@ def tokenize(text):
     text = text.lower()
     tokens = nltk.tokenize.word_tokenize(text)
     return tokens
+
 
 def build_vocabulary(caption_df, vocab_size=5000):
     """
@@ -55,7 +58,8 @@ def build_vocabulary(caption_df, vocab_size=5000):
 
     return word2idx, idx2word, image_captions
 
-def convert_captions_to_sequences(image_captions, word2idx):
+
+def convert_captions_to_sequences(image_captions, word2idx, return_caplens=False):
     """
     Converts captions to sequences of word indices.
     Args:
@@ -66,6 +70,7 @@ def convert_captions_to_sequences(image_captions, word2idx):
         max_length (int): Maximum length of the captions.
     """
     captions_seqs = {}
+    caplens = []
     max_length = 0
 
     for img_name, captions in image_captions.items():
@@ -78,9 +83,13 @@ def convert_captions_to_sequences(image_captions, word2idx):
             seqs.append(seq)
             # Update maximum caption length
             max_length = max(max_length, len(seq))
+            caplens.append(len(seq))
         captions_seqs[img_name] = seqs
 
+    if return_caplens:
+        return captions_seqs, max_length, caplens
     return captions_seqs, max_length
+
 
 def get_splits(image_names, test_size=0.2):
     """
@@ -102,6 +111,7 @@ def get_splits(image_names, test_size=0.2):
         temp_images, test_size=0.1, random_state=42
     )
     return train_images, val_images, test_images
+
 
 def prepare_image2captions(image_ids, captions_seqs, idx2word):
     """

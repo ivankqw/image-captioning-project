@@ -37,7 +37,9 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
             outputs = decoder(features, captions)
 
             # Exclude the first time step from outputs and targets
-            outputs = outputs[:, 1:, :]  # Ensure outputs and targets have the same length
+            outputs = outputs[
+                :, 1:, :
+            ]  # Ensure outputs and targets have the same length
             targets = captions[:, 1:]  # Exclude the first <start> token from targets
 
             # Reshape outputs and targets for loss computation
@@ -53,6 +55,7 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
     average_loss = total_loss / total_samples
     return average_loss
 
+
 # Function to calculate BLEU score for generated captions
 def calculate_bleu_score(
     encoder,
@@ -64,6 +67,7 @@ def calculate_bleu_score(
     idx2word,
     device,
     word2idx,
+    requires_wordmap=False,
 ):
     """
     Calculate BLEU score for the generated captions.
@@ -77,6 +81,7 @@ def calculate_bleu_score(
         idx2word: Mapping from word indices to words.
         device: Computation device (CPU or GPU).
         word2idx: Mapping from words to word indices.
+        requires_wordmap: whether wordmap is required during sampling
     Returns:
         bleu_score: Corpus BLEU score for generated captions.
     """
@@ -96,7 +101,12 @@ def calculate_bleu_score(
             # Generate caption
             features = encoder(image)
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            if requires_wordmap:
+                sampled_ids = decoder.sample(
+                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                )
+            else:
+                sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
@@ -125,6 +135,7 @@ def calculate_bleu_score(
     bleu_score = corpus_bleu(references, hypotheses, smoothing_function=smoothie)
     return bleu_score
 
+
 # Function to calculate METEOR score for generated captions
 def calculate_meteor_score(
     encoder,
@@ -136,6 +147,7 @@ def calculate_meteor_score(
     idx2word,
     device,
     word2idx,
+    requires_wordmap=False,
 ):
     """
     Calculate METEOR score for the generated captions.
@@ -149,6 +161,7 @@ def calculate_meteor_score(
         idx2word: Mapping from word indices to words.
         device: Computation device (CPU or GPU).
         word2idx: Mapping from words to word indices.
+        requires_wordmap: whether wordmap is required during sampling
     Returns:
         average_meteor: Average METEOR score.
     """
@@ -166,7 +179,12 @@ def calculate_meteor_score(
             # Generate caption
             features = encoder(image)
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            if requires_wordmap:
+                sampled_ids = decoder.sample(
+                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                )
+            else:
+                sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
@@ -196,6 +214,7 @@ def calculate_meteor_score(
     average_meteor = sum(meteor_scores) / len(meteor_scores)
     return average_meteor
 
+
 # Function to calculate CIDEr score for generated captions
 def calculate_cider_score(
     encoder,
@@ -207,6 +226,7 @@ def calculate_cider_score(
     idx2word,
     device,
     word2idx,
+    requires_wordmap=False,
 ):
     """
     Calculate CIDEr score for the generated captions.
@@ -220,6 +240,7 @@ def calculate_cider_score(
         idx2word: Mapping from word indices to words.
         device: Computation device (CPU or GPU).
         word2idx: Mapping from words to word indices.
+        requires_wordmap: whether wordmap is required during sampling
     Returns:
         cider_score: CIDEr score for generated captions.
     """
@@ -242,7 +263,12 @@ def calculate_cider_score(
             # Generate caption
             features = encoder(image)
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            if requires_wordmap:
+                sampled_ids = decoder.sample(
+                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                )
+            else:
+                sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
@@ -267,8 +293,8 @@ def calculate_cider_score(
             ]
 
             # Update dictionaries with tokenized captions
-            gts[img_id] = [{'caption': ref} for ref in references]
-            res[img_id] = [{'caption': sampled_caption_str}]
+            gts[img_id] = [{"caption": ref} for ref in references]
+            res[img_id] = [{"caption": sampled_caption_str}]
 
     # Tokenize captions
     gts = tokenizer.tokenize(gts)

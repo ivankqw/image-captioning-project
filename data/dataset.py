@@ -8,13 +8,16 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import random
 
+
 class FlickrDataset(Dataset):
     """
     Custom Dataset for loading Flickr images and captions.
     This dataset handles the basic functionality of loading images and their corresponding captions.
     """
 
-    def __init__(self, image_dir, image_ids, captions_seqs, transform=None, mode='train'):
+    def __init__(
+        self, image_dir, image_ids, captions_seqs, transform=None, mode="train"
+    ):
         """
         Args:
             image_dir (str): Directory with all the images.
@@ -30,14 +33,14 @@ class FlickrDataset(Dataset):
         self.captions = []
         self.image_ids = []
 
-        if self.mode == 'train':
+        if self.mode == "train":
             # Pair each image with its captions for training
             for img_id in image_ids:
                 captions = captions_seqs[img_id]
                 for caption_seq in captions:
                     self.images.append(img_id)
                     self.captions.append(caption_seq)
-        elif self.mode == 'test':
+        elif self.mode == "test":
             # For testing, pair each image with all its captions
             for img_id in image_ids:
                 captions = captions_seqs[img_id]
@@ -81,10 +84,11 @@ class FlickrDataset(Dataset):
         # Convert caption sequence to tensor
         caption_seq = torch.tensor(caption_seq)
 
-        if self.mode == 'train':
+        if self.mode == "train":
             return image, caption_seq
-        elif self.mode == 'test':
+        elif self.mode == "test":
             return image, caption_seq, img_id
+
 
 def collate_fn(batch):
     """
@@ -128,6 +132,7 @@ def collate_fn(batch):
     else:
         return images, targets, lengths
 
+
 def get_transform(train=True):
     """
     Returns the image transformations for training or evaluation.
@@ -137,23 +142,27 @@ def get_transform(train=True):
         transform (callable): Composed transformations.
     """
     if train:
-        transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.RandomCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],  # ImageNet mean
-                std=[0.229, 0.224, 0.225],   # ImageNet std
-            ),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.RandomCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet mean
+                    std=[0.229, 0.224, 0.225],  # ImageNet std
+                ),
+            ]
+        )
     else:
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],  # ImageNet mean
-                std=[0.229, 0.224, 0.225],   # ImageNet std
-            ),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet mean
+                    std=[0.229, 0.224, 0.225],  # ImageNet std
+                ),
+            ]
+        )
     return transform
