@@ -1,4 +1,4 @@
-from typing import OrderedDict
+from typing import OrderedDict, List, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +7,102 @@ from torchvision.models.detection import (
     fasterrcnn_resnet50_fpn_v2 as fasterrcnn_resnet50_fpn,
 )
 import torchvision
+from torchvision.ops import boxes as box_ops
+
+SCORE_THRESH = 0.2
+DETECTIONS_PER_IMG = 36
+
+
+# adapted from torchvision.models.detection.roi_heads.RoIHeads
+def _postprocess_detections(
+    roi_heads: nn.Module,
+    class_logits: torch.Tensor,  # type: Tensor
+    box_regression: torch.Tensor,  # type: Tensor
+    proposals: List[torch.Tensor],  # type: List[Tensor]
+    image_shapes: List[Tuple[int, int]],
+) -> Tuple[
+    List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
+]:
+    device = class_logits.device
+    num_classes = class_logits.shape[-1]
+
+    boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
+    pred_boxes = roi_heads.box_coder.decode(box_regression, proposals)
+
+    pred_scores = F.softmax(class_logits, -1)
+
+    pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
+    pred_scores_list = pred_scores.split(boxes_per_image, 0)
+
+    all_boxes = []
+    all_scores = []
+    all_labels = []
+    all_indices = []
+    start_idx = 0
+    for i, (boxes, scores, image_shape, proposal) in enumerate(
+        zip(pred_boxes_list, pred_scores_list, image_shapes, proposals)
+    ):
+        print(f"Processing image {i+1}/{len(image_shapes)}")
+        print(f"Initial boxes shape: {boxes.shape}")
+        print(f"Initial scores shape: {scores.shape}")
+        boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
+        print(f"Boxes shape after clipping: {boxes.shape}")
+
+        # create labels for each prediction
+        labels = torch.arange(num_classes, device=device)
+        labels = labels.view(1, -1).expand_as(scores)
+
+        # remove predictions with the background label
+        boxes = boxes[:, 1:]
+        scores = scores[:, 1:]
+        labels = labels[:, 1:]
+        print(
+            f"Shapes after removing background: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
+        )
+
+        # batch everything, by making every class prediction be a separate instance
+        boxes = boxes.reshape(-1, 4)
+        scores = scores.reshape(-1)
+        labels = labels.reshape(-1)
+        print(
+            f"Shapes after reshaping: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
+        )
+
+        # remove low scoring boxes
+        inds = torch.where(scores > SCORE_THRESH)[0]
+        boxes, scores, labels = boxes[inds], scores[inds], labels[inds]
+        print(
+            f"Shapes after score thresholding: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
+        )
+
+        # remove empty boxes
+        keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
+        boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
+        print(
+            f"Shapes after removing small boxes: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
+        )
+
+        # non-maximum suppression, independently done per class
+        keep = box_ops.batched_nms(boxes, scores, labels, roi_heads.nms_thresh)
+        # keep only topk scoring predictions
+        keep = keep[:DETECTIONS_PER_IMG]
+        boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
+        print(
+            f"Shapes after NMS: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
+        )
+
+        all_boxes.append(boxes)
+        all_scores.append(scores)
+        all_labels.append(labels)
+
+        adjusted_inds = inds[keep] + start_idx
+        all_indices.append(adjusted_inds)
+        print(f"Adjusted indices: {adjusted_inds}")
+        # print(f"Start index: {start_idx}, Max adjusted index: {adjusted_inds.max().item()}")
+
+        start_idx += 1000
+
+    return all_boxes, all_scores, all_labels, all_indices
 
 
 class EncoderBUAttention(nn.Module):
@@ -31,81 +127,38 @@ class EncoderBUAttention(nn.Module):
 
     def forward(self, images):
         batch_size = len(images)
-        conf_thresh = 0.2  # Adjust this threshold as needed
-        max_boxes = 36  # Maximum number of boxes to keep per image
         print("Batch size:", batch_size)
 
-        # images = list(images)
-        # # Extract bottom-up features
-        # transformed_images, _ = self.faster_rcnn.transform(images)
-        # features = self.faster_rcnn.backbone(transformed_images.tensors)
-        # if isinstance(features, torch.Tensor):
-        #     features = OrderedDict([("0", features)])
-        # proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
-        # box_features = self.faster_rcnn.roi_heads.box_roi_pool(
-        #     features, proposals, transformed_images.image_sizes
-        # )
-        # box_features = self.faster_rcnn.roi_heads.box_head(box_features)
-        # print("Shape of box_features:", box_features.shape)
-        # return box_features
-        # Initialize empty lists to store features and proposals
-        all_box_features = []
-        all_proposals = []
-
-        # Process images in smaller batches
-        for start in range(0, len(images), batch_size):  # Adjust batch size as needed
-            end = start + batch_size
-            batch_images = images[start:end]
-
-            # Extract bottom-up features for the batch
-            transformed_images, _ = self.faster_rcnn.transform(batch_images)
-            features = self.faster_rcnn.backbone(transformed_images.tensors)
-            if isinstance(features, torch.Tensor):
-                features = OrderedDict([("0", features)])
-            proposals, scores = self.faster_rcnn.rpn(transformed_images, features, None)
-
-            # print type of proposals and scores
-            print("Type of proposals:", type(proposals))
-            print("Type of scores:", type(scores))
-            # convert proposals and scores to tensors
-            proposals = proposals.tensor
-            scores = scores.tensor
-
-            # Apply non-maximum suppression (NMS)
-            keep = torchvision.ops.nms(proposals, scores, iou_threshold=0.5)
-            proposals = proposals[keep]
-            scores = scores[keep]
-
-            # Keep only the best detections
-            keep_boxes = torch.where(scores >= conf_thresh)[0]
-            if len(keep_boxes) > max_boxes:
-                keep_boxes = torch.argsort(scores[keep_boxes], descending=True)[
-                    :max_boxes
-                ]
-            proposals = proposals[keep_boxes]
-
-            box_features = self.faster_rcnn.roi_heads.box_roi_pool(
-                features, proposals, transformed_images.image_sizes
-            )
-            box_features = self.faster_rcnn.roi_heads.box_head(box_features)
-
-            # Append batch features and proposals to the lists
-            all_box_features.append(box_features)
-            proposals = torch.cat(all_proposals, dim=0)
-
-        # Concatenate features and proposals from all batches
-        box_features = torch.cat(all_box_features, dim=0)
-        proposals = torch.cat(all_proposals, dim=0)
-
-        # Check shapes
+        # Extract bottom-up features for the batch
+        transformed_images, _ = self.faster_rcnn.transform(images)
+        features = self.faster_rcnn.backbone(transformed_images.tensors)
+        if isinstance(features, torch.Tensor):
+            features = OrderedDict([("0", features)])
+        proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
+        box_features = self.faster_rcnn.roi_heads.box_roi_pool(
+            features, proposals, transformed_images.image_sizes
+        )
+        box_features = self.faster_rcnn.roi_heads.box_head(box_features)
         print("Shape of box_features:", box_features.shape)
-        print("Shape of proposals:", proposals.shape)
+        # box prediction
+        class_logits, box_regression = self.faster_rcnn.roi_heads.box_predictor(
+            box_features
+        )
+        # adapted postprocess detections to get the indices of the boxes that we want to keep thus box features
+        _, _, _, indices_keep = _postprocess_detections(
+            self.faster_rcnn.roi_heads,
+            class_logits,
+            box_regression,
+            proposals,
+            transformed_images.image_sizes,
+        )
+        indices_keep = torch.cat(indices_keep, dim=0)
+        print("Indices of boxes to keep:", indices_keep)
+        # keep the box_features of the kept proposals
+        box_features = box_features[indices_keep]
+        print("Shape of box_features after filtering:", box_features.shape)
 
-        # Compute spatial features
-        # image_sizes = [img.size for img in images]
-        # spatial_features = compute_spatial_features(proposals, image_sizes, device)
-
-        return box_features  # , spatial_features
+        return box_features
 
 
 class Attention(nn.Module):
