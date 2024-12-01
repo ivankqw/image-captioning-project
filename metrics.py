@@ -7,8 +7,11 @@ from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 from nltk.translate.meteor_score import meteor_score
 from PIL import Image
 
+
 # Evaluate function: Computes validation loss on a given dataset
-def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
+def evaluate(
+    encoder, decoder, data_loader, criterion, device, vocab_size, caplens_required=False
+):
     """
     Evaluate the model on the validation set.
     Args:
@@ -18,6 +21,7 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
         criterion: Loss function.
         device: Computation device (CPU or GPU).
         vocab_size: Size of the vocabulary.
+        caplens: List of caption lengths.
     Returns:
         average_loss: Average validation loss.
     """
@@ -27,24 +31,51 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
     total_samples = 0
 
     with torch.no_grad():  # Disable gradient computation for evaluation
-        for images, captions, _ in data_loader:
+        for images, captions, caplens in data_loader:
             # Move data to the computation device
             images = images.to(device)
             captions = captions.to(device)
+            caplens = torch.tensor(caplens).to(device)
 
             # Forward pass through encoder and decoder
             features = encoder(images)
-            outputs = decoder(features, captions)
+            if caplens_required:
+                scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
+                    features, captions, caplens
+                )
+                # max pooling across predicted words across time steps for discriminative supervision
+                scores_d = scores_d.max(1)[0]
 
-            # Exclude the first time step from outputs and targets
-            outputs = outputs[
-                :, 1:, :
-            ]  # Ensure outputs and targets have the same length
-            targets = captions[:, 1:]  # Exclude the first <start> token from targets
+                # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+                targets = caps_sorted[:, 1:]
+                targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
+                targets_d.fill_(-1)
 
-            # Reshape outputs and targets for loss computation
-            outputs = outputs.reshape(-1, vocab_size)
-            targets = targets.reshape(-1)
+                for length in decode_lengths:
+                    targets_d[:, : length - 1] = targets[:, : length - 1]
+
+                # remove timesteps we didn't decode at, or are pads
+                scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
+                    scores, decode_lengths, batch_first=True
+                )
+                targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
+                    targets, decode_lengths, batch_first=True
+                )
+                outputs = scores_packed_seq.data
+                targets = targets_packed_seq.data
+            else:
+                outputs = decoder(features, captions)
+                # Exclude the first time step from outputs and targets
+                outputs = outputs[
+                    :, 1:, :
+                ]  # Ensure outputs and targets have the same length
+                targets = captions[
+                    :, 1:
+                ]  # Exclude the first <start> token from targets
+
+                # Reshape outputs and targets for loss computation
+                outputs = outputs.reshape(-1, vocab_size)
+                targets = targets.reshape(-1)
 
             # Compute loss
             loss = criterion(outputs, targets)
@@ -103,7 +134,7 @@ def calculate_bleu_score(
             end_token_idx = word2idx["<end>"]
             if requires_wordmap:
                 sampled_ids = decoder.sample(
-                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                    features=features, end_token_idx=end_token_idx, word_map=word2idx
                 )
             else:
                 sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
@@ -181,7 +212,7 @@ def calculate_meteor_score(
             end_token_idx = word2idx["<end>"]
             if requires_wordmap:
                 sampled_ids = decoder.sample(
-                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                    features=features, end_token_idx=end_token_idx, word_map=word2idx
                 )
             else:
                 sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
@@ -265,7 +296,7 @@ def calculate_cider_score(
             end_token_idx = word2idx["<end>"]
             if requires_wordmap:
                 sampled_ids = decoder.sample(
-                    features, end_token_idx=end_token_idx, wordmap=word2idx
+                    features=features, end_token_idx=end_token_idx, word_map=word2idx
                 )
             else:
                 sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
