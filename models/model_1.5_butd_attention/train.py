@@ -167,12 +167,15 @@ def main():
 
             # remoeve timesteps we didn't decode at, or are pads
             # pack_padded_sequence is an easy trick to do this
-            scores, _ = nn.utils.rnn.pack_padded_sequence(
+            scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
                 scores, decode_lengths, batch_first=True
             )
-            targets, _ = nn.utils.rnn.pack_padded_sequence(
+            targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
                 targets, decode_lengths, batch_first=True
             )
+            # extract data
+            scores = scores_packed_seq.data
+            targets = targets_packed_seq.data
 
             # Compute loss
             # loss_dis = criterion_dis(scores_d, targets_d.long())

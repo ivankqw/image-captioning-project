@@ -14,95 +14,42 @@ DETECTIONS_PER_IMG = 36
 
 
 # adapted from torchvision.models.detection.roi_heads.RoIHeads
-def _postprocess_detections(
+def _postprocess_detections_single_image(
     roi_heads: nn.Module,
     class_logits: torch.Tensor,  # type: Tensor
     box_regression: torch.Tensor,  # type: Tensor
     proposals: List[torch.Tensor],  # type: List[Tensor]
-    image_shapes: List[Tuple[int, int]],
-) -> Tuple[
-    List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
-]:
+    image_shape: Tuple[int, int],
+) -> List[int]:
     device = class_logits.device
     num_classes = class_logits.shape[-1]
 
-    boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
     pred_boxes = roi_heads.box_coder.decode(box_regression, proposals)
-
     pred_scores = F.softmax(class_logits, -1)
 
-    pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
-    pred_scores_list = pred_scores.split(boxes_per_image, 0)
+    # remove predictions with the background label
+    boxes = pred_boxes[:, 1:]
+    scores = pred_scores[:, 1:]
 
-    all_boxes = []
-    all_scores = []
-    all_labels = []
-    all_indices = []
-    start_idx = 0
-    for i, (boxes, scores, image_shape, proposal) in enumerate(
-        zip(pred_boxes_list, pred_scores_list, image_shapes, proposals)
-    ):
-        print(f"Processing image {i+1}/{len(image_shapes)}")
-        print(f"Initial boxes shape: {boxes.shape}")
-        print(f"Initial scores shape: {scores.shape}")
-        boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
-        print(f"Boxes shape after clipping: {boxes.shape}")
+    # batch everything, by making every class prediction be a separate instance
+    boxes = boxes.reshape(-1, 4)
+    scores = scores.reshape(-1)
 
-        # create labels for each prediction
-        labels = torch.arange(num_classes, device=device)
-        labels = labels.view(1, -1).expand_as(scores)
+    # remove low scoring boxes
+    inds = torch.where(scores > roi_heads.score_thresh)[0]
+    boxes, scores = boxes[inds], scores[inds]
 
-        # remove predictions with the background label
-        boxes = boxes[:, 1:]
-        scores = scores[:, 1:]
-        labels = labels[:, 1:]
-        print(
-            f"Shapes after removing background: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
-        )
+    # remove empty boxes
+    keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
+    boxes, scores = boxes[keep], scores[keep]
 
-        # batch everything, by making every class prediction be a separate instance
-        boxes = boxes.reshape(-1, 4)
-        scores = scores.reshape(-1)
-        labels = labels.reshape(-1)
-        print(
-            f"Shapes after reshaping: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
-        )
+    # non-maximum suppression
+    keep = box_ops.nms(boxes, scores, SCORE_THRESH)
+    # keep only top DETECTIONS_PER_IMG scoring predictions
+    keep = keep[:DETECTIONS_PER_IMG]
+    boxes, scores = boxes[keep], scores[keep]
 
-        # remove low scoring boxes
-        inds = torch.where(scores > SCORE_THRESH)[0]
-        boxes, scores, labels = boxes[inds], scores[inds], labels[inds]
-        print(
-            f"Shapes after score thresholding: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
-        )
-
-        # remove empty boxes
-        keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
-        boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
-        print(
-            f"Shapes after removing small boxes: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
-        )
-
-        # non-maximum suppression, independently done per class
-        keep = box_ops.batched_nms(boxes, scores, labels, roi_heads.nms_thresh)
-        # keep only topk scoring predictions
-        keep = keep[:DETECTIONS_PER_IMG]
-        boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
-        print(
-            f"Shapes after NMS: boxes {boxes.shape}, scores {scores.shape}, labels {labels.shape}"
-        )
-
-        all_boxes.append(boxes)
-        all_scores.append(scores)
-        all_labels.append(labels)
-
-        adjusted_inds = inds[keep] + start_idx
-        all_indices.append(adjusted_inds)
-        print(f"Adjusted indices: {adjusted_inds}")
-        # print(f"Start index: {start_idx}, Max adjusted index: {adjusted_inds.max().item()}")
-
-        start_idx += 1000
-
-    return all_boxes, all_scores, all_labels, all_indices
+    return keep.tolist()
 
 
 class EncoderBUAttention(nn.Module):
@@ -134,31 +81,56 @@ class EncoderBUAttention(nn.Module):
         features = self.faster_rcnn.backbone(transformed_images.tensors)
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
-        proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
-        box_features = self.faster_rcnn.roi_heads.box_roi_pool(
-            features, proposals, transformed_images.image_sizes
-        )
-        box_features = self.faster_rcnn.roi_heads.box_head(box_features)
-        print("Shape of box_features:", box_features.shape)
-        # box prediction
-        class_logits, box_regression = self.faster_rcnn.roi_heads.box_predictor(
-            box_features
-        )
-        # adapted postprocess detections to get the indices of the boxes that we want to keep thus box features
-        _, _, _, indices_keep = _postprocess_detections(
-            self.faster_rcnn.roi_heads,
-            class_logits,
-            box_regression,
-            proposals,
-            transformed_images.image_sizes,
-        )
-        indices_keep = torch.cat(indices_keep, dim=0)
-        print("Indices of boxes to keep:", indices_keep)
-        # keep the box_features of the kept proposals
-        box_features = box_features[indices_keep]
-        print("Shape of box_features after filtering:", box_features.shape)
 
-        return box_features
+        proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
+
+        # extract box_features for each image
+        box_features_list = []
+        for i, (image, proposals_per_image, image_shape) in enumerate(
+            zip(images, proposals, transformed_images.image_sizes)
+        ):
+            print(f"Processing image {i+1}/{batch_size}")
+            box_features = self.faster_rcnn.roi_heads.box_roi_pool(
+                features, [proposals_per_image], [image_shape]
+            )
+            box_features = self.faster_rcnn.roi_heads.box_head(box_features)
+            print(f"Shape of box_features before filtering: {box_features.shape}")
+
+            # box prediction
+            class_logits, box_regression = self.faster_rcnn.roi_heads.box_predictor(
+                box_features
+            )
+
+            # adapted postprocess detections to get the indices of the boxes that we want to keep thus box features
+            indices_keep = _postprocess_detections_single_image(
+                self.faster_rcnn.roi_heads,
+                class_logits,
+                box_regression,
+                [proposals_per_image],
+                image_shape,
+            )
+
+            # keep the box_features of the kept proposals
+            box_features = box_features[indices_keep]
+            print(f"Shape of box_features after filtering: {box_features.shape}")
+
+            # Pad box_features with zeros to ensure a consistent shape
+            pad_size = DETECTIONS_PER_IMG - box_features.shape[0]
+            padded_box_features = torch.cat(
+                [
+                    box_features,
+                    torch.zeros(pad_size, box_features.shape[1]).to(
+                        box_features.device
+                    ),
+                ],
+                dim=0,
+            )
+            box_features_list.append(padded_box_features)
+
+        # stack the padded box_features tensors along the batch dimension
+        box_features_tensor = torch.stack(box_features_list, dim=0)
+        print(f"Shape of box_features_tensor: {box_features_tensor.shape}")
+        return box_features_tensor
 
 
 class Attention(nn.Module):
@@ -172,13 +144,24 @@ class Attention(nn.Module):
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, image_features, decoder_hidden):
-        att1 = self.features_att(image_features)
-        att2 = self.decoder_att(decoder_hidden)
-        att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(2)
-        alpha = self.softmax(att)
-        attention_weighted_encoding = (image_features * alpha.unsqueeze(2)).sum(dim=1)
+        att1 = self.features_att(
+            image_features
+        )  # (batch_size, num_pixels, attention_dim). num_pixels = 36
+        att2 = self.decoder_att(decoder_hidden)  # (batch_size, attention_dim)
+        att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(
+            2
+        )  # (batch_size, num_pixels)
+        alpha = self.softmax(att)  # (batch_size, num_pixels)
+        attention_weighted_encoding = (image_features * alpha.unsqueeze(2)).sum(
+            dim=1
+        )  # (batch_size, features_dim)
+        print(
+            "Shape of attention_weighted_encoding:", attention_weighted_encoding.shape
+        )
+        # should be tensor of shape (batch_size, features_dim)
+        # attention_weighted_encoding = attention_weighted_encoding.squeeze(1)
 
-        return attention_weighted_encoding, alpha
+        return attention_weighted_encoding
 
 
 class DecoderWithAttention(nn.Module):
@@ -273,6 +256,7 @@ class DecoderWithAttention(nn.Module):
         image_features_mean = image_features.mean(1).to(
             self.device
         )  # (batch_size, num_pixels, encoder_dim)
+        print("Shape of image_features_mean:", image_features_mean.shape)
 
         # Sort input data by decreasing lengths; why? apparent below
         caption_lengths, sort_ind = caption_lengths.sort(dim=0, descending=True)
@@ -313,8 +297,11 @@ class DecoderWithAttention(nn.Module):
         # are then passed to the language model
         for t in range(max(decode_lengths)):
             batch_size_t = sum([l > t for l in decode_lengths])
+            print(type(h2))
+            print(type(image_features_mean))
+            print(type(embeddings))
             h1, c1 = self.top_down_attention(
-                torch.cat(
+                input=torch.cat(
                     [
                         h2[:batch_size_t],
                         image_features_mean[:batch_size_t],
@@ -322,18 +309,20 @@ class DecoderWithAttention(nn.Module):
                     ],
                     dim=1,
                 ),
-                (h1[:batch_size_t], c1[:batch_size_t]),
+                hx=(h1[:batch_size_t], c1[:batch_size_t]),
             )
             attention_weighted_encoding = self.attention(
                 image_features[:batch_size_t], h1[:batch_size_t]
             )
             preds1 = self.fc1(self.dropout(h1))
+            print(type(attention_weighted_encoding))
+            print(type(attention_weighted_encoding[:batch_size_t]))
             h2, c2 = self.language_model(
-                torch.cat(
+                input=torch.cat(
                     [attention_weighted_encoding[:batch_size_t], h1[:batch_size_t]],
                     dim=1,
                 ),
-                (h2[:batch_size_t], c2[:batch_size_t]),
+                hx=(h2[:batch_size_t], c2[:batch_size_t]),
             )
             preds = self.fc(self.dropout(h2))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
