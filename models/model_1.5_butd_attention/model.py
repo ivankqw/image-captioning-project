@@ -6,7 +6,6 @@ from torch.nn.utils.weight_norm import weight_norm
 from torchvision.models.detection import (
     fasterrcnn_resnet50_fpn_v2 as fasterrcnn_resnet50_fpn,
 )
-import torchvision
 from torchvision.ops import boxes as box_ops
 
 SCORE_THRESH = 0.2
@@ -74,11 +73,10 @@ class EncoderBUAttention(nn.Module):
 
     def forward(self, images):
         batch_size = len(images)
-        print("Batch size:", batch_size)
 
         # Extract bottom-up features for the batch
         transformed_images, _ = self.faster_rcnn.transform(images)
-        features = self.faster_rcnn.backbone(transformed_images.tensors)
+        features = self.faster_rcnn.backbone(transformed_images.tensors.to(self.device))
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
 
@@ -86,15 +84,13 @@ class EncoderBUAttention(nn.Module):
 
         # extract box_features for each image
         box_features_list = []
-        for i, (image, proposals_per_image, image_shape) in enumerate(
-            zip(images, proposals, transformed_images.image_sizes)
+        for image, proposals_per_image, image_shape in zip(
+            images, proposals, transformed_images.image_sizes
         ):
-            print(f"Processing image {i+1}/{batch_size}")
             box_features = self.faster_rcnn.roi_heads.box_roi_pool(
                 features, [proposals_per_image], [image_shape]
             )
             box_features = self.faster_rcnn.roi_heads.box_head(box_features)
-            print(f"Shape of box_features before filtering: {box_features.shape}")
 
             # box prediction
             class_logits, box_regression = self.faster_rcnn.roi_heads.box_predictor(
@@ -112,16 +108,13 @@ class EncoderBUAttention(nn.Module):
 
             # keep the box_features of the kept proposals
             box_features = box_features[indices_keep]
-            print(f"Shape of box_features after filtering: {box_features.shape}")
 
             # Pad box_features with zeros to ensure a consistent shape
             pad_size = DETECTIONS_PER_IMG - box_features.shape[0]
             padded_box_features = torch.cat(
                 [
                     box_features,
-                    torch.zeros(pad_size, box_features.shape[1]).to(
-                        box_features.device
-                    ),
+                    torch.zeros(pad_size, box_features.shape[1], device=self.device),
                 ],
                 dim=0,
             )
@@ -129,7 +122,6 @@ class EncoderBUAttention(nn.Module):
 
         # stack the padded box_features tensors along the batch dimension
         box_features_tensor = torch.stack(box_features_list, dim=0)
-        print(f"Shape of box_features_tensor: {box_features_tensor.shape}")
         return box_features_tensor
 
 
@@ -155,11 +147,6 @@ class Attention(nn.Module):
         attention_weighted_encoding = (image_features * alpha.unsqueeze(2)).sum(
             dim=1
         )  # (batch_size, features_dim)
-        print(
-            "Shape of attention_weighted_encoding:", attention_weighted_encoding.shape
-        )
-        # should be tensor of shape (batch_size, features_dim)
-        # attention_weighted_encoding = attention_weighted_encoding.squeeze(1)
 
         return attention_weighted_encoding
 
@@ -200,17 +187,23 @@ class DecoderWithAttention(nn.Module):
             features_dim, decoder_dim, attention_dim
         )  # attention network
 
-        self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
-        self.dropout = nn.Dropout(p=self.dropout)
+        self.embedding = nn.Embedding(vocab_size, embed_dim).to(
+            device
+        )  # embedding layer
+        self.dropout = nn.Dropout(p=self.dropout).to(device)
         self.top_down_attention = nn.LSTMCell(
             embed_dim + features_dim + decoder_dim, decoder_dim, bias=True
+        ).to(
+            device
         )  # top down attention LSTMCell
         self.language_model = nn.LSTMCell(
             features_dim + decoder_dim, decoder_dim, bias=True
+        ).to(
+            device
         )  # language model LSTMCell
-        self.fc1 = weight_norm(nn.Linear(decoder_dim, vocab_size))
-        self.fc = weight_norm(
-            nn.Linear(decoder_dim, vocab_size)
+        self.fc1 = weight_norm(nn.Linear(decoder_dim, vocab_size)).to(device)
+        self.fc = weight_norm(nn.Linear(decoder_dim, vocab_size)).to(
+            device
         )  # linear layer to find scores over vocabulary
         self.init_weights()  # initialize some layers with the uniform distribution
         self.device = device
@@ -247,28 +240,16 @@ class DecoderWithAttention(nn.Module):
         batch_size = image_features.size(0)
         vocab_size = self.vocab_size
 
-        # Print shapes of input tensors
-        print("Shape of image_features:", image_features.shape)
-        print("Shape of encoded_captions:", encoded_captions.shape)
-        print("Shape of caption_lengths:", caption_lengths.shape)
-
         # Flatten image
         image_features_mean = image_features.mean(1).to(
             self.device
         )  # (batch_size, num_pixels, encoder_dim)
-        print("Shape of image_features_mean:", image_features_mean.shape)
 
         # Sort input data by decreasing lengths; why? apparent below
         caption_lengths, sort_ind = caption_lengths.sort(dim=0, descending=True)
-        image_features = image_features[sort_ind]
-        image_features_mean = image_features_mean[sort_ind]
-        encoded_captions = encoded_captions[sort_ind]
-
-        # Print shapes after sorting
-        print("Shape of image_features after sorting:", image_features.shape)
-        print("Shape of image_features_mean after sorting:", image_features_mean.shape)
-        print("Shape of encoded_captions after sorting:", encoded_captions.shape)
-        print("Shape of caption_lengths after sorting:", caption_lengths.shape)
+        image_features = image_features[sort_ind].to(self.device)
+        image_features_mean = image_features_mean[sort_ind].to(self.device)
+        encoded_captions = encoded_captions[sort_ind].to(self.device)
 
         # Embedding
         embeddings = self.embedding(
@@ -297,9 +278,6 @@ class DecoderWithAttention(nn.Module):
         # are then passed to the language model
         for t in range(max(decode_lengths)):
             batch_size_t = sum([l > t for l in decode_lengths])
-            print(type(h2))
-            print(type(image_features_mean))
-            print(type(embeddings))
             h1, c1 = self.top_down_attention(
                 input=torch.cat(
                     [
@@ -315,8 +293,6 @@ class DecoderWithAttention(nn.Module):
                 image_features[:batch_size_t], h1[:batch_size_t]
             )
             preds1 = self.fc1(self.dropout(h1))
-            print(type(attention_weighted_encoding))
-            print(type(attention_weighted_encoding[:batch_size_t]))
             h2, c2 = self.language_model(
                 input=torch.cat(
                     [attention_weighted_encoding[:batch_size_t], h1[:batch_size_t]],
@@ -343,7 +319,7 @@ class DecoderWithAttention(nn.Module):
             sampled_ids: List of predicted word indices
         """
         sampled_ids = []
-        inputs = features  # Initial input is the image features
+        inputs = features.to(self.device)  # Initial input is the image features
         h_t = torch.zeros(1, self.decoder_dim).to(self.device)
         c_t = torch.zeros(1, self.decoder_dim).to(self.device)
 

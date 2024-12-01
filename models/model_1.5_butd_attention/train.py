@@ -142,14 +142,11 @@ def main():
 
         for i, (images, captions, caplens) in enumerate(train_loader):
             images = images.to(device)
-            captions = captions.to(
-                device
-            )  # captions_seqs (dict): Mapping from image filenames to sequences of word indices.
+            captions = captions.to(device)
             caplens = torch.tensor(caplens).to(device)
 
             # Forward pass
             features = encoder(images)
-            # outputs = decoder(features, captions, caplens)
             scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
                 features, captions, caplens
             )
@@ -165,22 +162,18 @@ def main():
             for length in decode_lengths:
                 targets_d[:, : length - 1] = targets[:, : length - 1]
 
-            # remoeve timesteps we didn't decode at, or are pads
-            # pack_padded_sequence is an easy trick to do this
+            # remove timesteps we didn't decode at, or are pads
             scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
                 scores, decode_lengths, batch_first=True
             )
             targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
                 targets, decode_lengths, batch_first=True
             )
-            # extract data
             scores = scores_packed_seq.data
             targets = targets_packed_seq.data
 
             # Compute loss
-            # loss_dis = criterion_dis(scores_d, targets_d.long())
             loss_ce = criterion_ce(scores, targets)
-            # loss = loss_ce + (10 * loss_dis)
 
             # Backward and optimize
             optimizer.zero_grad()
@@ -253,7 +246,7 @@ def main():
             f"Time: {epoch_duration:.2f}s"
         )
 
-        # **Append average training loss instead of total loss**
+        # Append average training loss instead of total loss
         train_losses.append(avg_train_loss)
         val_losses.append(val_loss)
         bleu_scores.append(bleu)
