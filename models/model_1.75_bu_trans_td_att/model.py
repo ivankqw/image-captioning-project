@@ -256,8 +256,8 @@ class DecoderWithTransformer(nn.Module):
         return mask  # Shape: (sz, sz)
 
     def forward(self, image_features, encoded_captions, caption_lengths):
-        batch_size = image_features.size(0)
-        num_pixels = image_features.size(1)
+        # batch_size = image_features.size(0)
+        # num_pixels = image_features.size(1)
 
         # Sort input data by decreasing caption lengths
         caption_lengths, sort_ind = caption_lengths.sort(dim=0, descending=True)
@@ -306,7 +306,7 @@ class DecoderWithTransformer(nn.Module):
         )  # (batch_size, max_caption_length, vocab_size)
 
         # Return outputs, sorted captions, decode lengths, sort indices
-        return outputs, encoded_captions, decode_lengths, sort_ind
+        return outputs, encoded_captions, decode_lengths  # , sort_ind
 
     def sample(self, features, word_map, max_len=20, end_token_idx=None):
         """
@@ -322,7 +322,7 @@ class DecoderWithTransformer(nn.Module):
         self.eval()
         with torch.no_grad():
             inputs = features.to(self.device)
-            batch_size = inputs.size(0)
+            # batch_size = inputs.size(0)
 
             # Attention
             image_features_mean = inputs.mean(1)

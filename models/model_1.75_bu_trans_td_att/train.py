@@ -147,15 +147,8 @@ def main():
 
             # Forward pass
             features = encoder(images)
-            outputs, caps_sorted, decode_lengths, sort_ind = decoder(
-                features, captions, caplens
-            )
+            outputs, caps_sorted, decode_lengths = decoder(features, captions, caplens)
             targets = caps_sorted[:, 1:]  # Remove <start> token
-
-            # print the shape and device of outputs, decode lengths, and targets
-            # print(f"outputs shape: {outputs.shape}, device: {outputs.device}")
-            # print(f"decode lengths shape: {decode_lengths.shape}, device: {decode_lengths.device}")
-            # print(f"targets shape: {targets.shape}, device: {targets.device}")
 
             # Pack outputs and targets
             outputs_packed = nn.utils.rnn.pack_padded_sequence(

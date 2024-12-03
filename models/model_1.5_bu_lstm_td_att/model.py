@@ -304,7 +304,8 @@ class DecoderWithAttention(nn.Module):
             predictions[:batch_size_t, t, :] = preds
             predictions1[:batch_size_t, t, :] = preds1
 
-        return predictions, predictions1, encoded_captions, decode_lengths, sort_ind
+        # return predictions, predictions1, encoded_captions, decode_lengths, sort_ind
+        return predictions, encoded_captions, decode_lengths
 
     def sample(self, features, word_map, max_len=20, end_token_idx=None):
         """
