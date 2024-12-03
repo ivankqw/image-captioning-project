@@ -15,58 +15,40 @@ NMS_THRESH = 0.5  # Non-maximum suppression threshold
 DETECTIONS_PER_IMG = 36  # Max detections per image
 
 
+# adapted from torchvision.models.detection.roi_heads.RoIHeads
 def _postprocess_detections_single_image(
     roi_heads: nn.Module,
-    class_logits: torch.Tensor,
-    box_regression: torch.Tensor,
-    proposals: torch.Tensor,
+    class_logits: torch.Tensor,  # type: Tensor
+    box_regression: torch.Tensor,  # type: Tensor
+    proposals: List[torch.Tensor],  # type: List[Tensor]
     image_shape: Tuple[int, int],
 ) -> List[int]:
-    """
-    Post-processes the detections for a single image.
 
-    :param roi_heads: The ROI heads module from Faster R-CNN.
-    :param class_logits: Class logits from the ROI head.
-    :param box_regression: Box regression outputs from the ROI head.
-    :param proposals: Proposals for the image.
-    :param image_shape: The original image shape (height, width).
-    :return: Indices of the proposals to keep.
-    """
-    device = class_logits.device
+    pred_boxes = roi_heads.box_coder.decode(box_regression, proposals)
+    pred_scores = F.softmax(class_logits, -1)
 
-    # Decode the boxes
-    boxes_per_cls = roi_heads.box_coder.decode(box_regression, [proposals])
-    boxes_per_cls = boxes_per_cls[0]  # (num_proposals, num_classes * 4)
+    # remove predictions with the background label
+    boxes = pred_boxes[:, 1:]
+    scores = pred_scores[:, 1:]
 
-    # Get scores
-    scores = F.softmax(class_logits, -1)[0]  # (num_proposals, num_classes)
+    # batch everything, by making every class prediction be a separate instance
+    boxes = boxes.reshape(-1, 4)
+    scores = scores.reshape(-1)
 
-    # Remove background class (class 0)
-    boxes = boxes_per_cls[:, 1:]  # (num_proposals, (num_classes - 1) * 4)
-    scores = scores[:, 1:]  # (num_proposals, num_classes - 1)
-
-    num_classes = scores.shape[1]
-
-    # Reshape for processing
-    boxes = boxes.reshape(-1, 4)  # (num_proposals * (num_classes - 1), 4)
-    scores = scores.reshape(-1)  # (num_proposals * (num_classes - 1))
-
-    # Remove low scoring boxes
-    inds = torch.where(scores > SCORE_THRESH)[0]
+    # remove low scoring boxes
+    inds = torch.where(scores > roi_heads.score_thresh)[0]
     boxes, scores = boxes[inds], scores[inds]
 
-    # Clip boxes to image
-    boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
-
-    # Remove small boxes
+    # remove empty boxes
     keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
     boxes, scores = boxes[keep], scores[keep]
 
-    # Non-maximum suppression
-    keep = box_ops.nms(boxes, scores, NMS_THRESH)
-
-    # Keep top detections
+    # non-maximum suppression
+    keep = box_ops.nms(boxes, scores, SCORE_THRESH)
+    # keep only top DETECTIONS_PER_IMG scoring predictions
     keep = keep[:DETECTIONS_PER_IMG]
+    boxes, scores = boxes[keep], scores[keep]
+
     return keep.tolist()
 
 
@@ -75,89 +57,74 @@ class EncoderBUAttention(nn.Module):
         super(EncoderBUAttention, self).__init__()
         self.device = device
 
-        # Load the pre-trained Faster R-CNN with the correct weights
-        self.faster_rcnn = fasterrcnn_resnet50_fpn(
-            weights=FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
-        )
+        # Load the pre-trained Faster R-CNN
+        self.faster_rcnn = fasterrcnn_resnet50_fpn(weights="COCO_V1")
         self.faster_rcnn.to(self.device)
         self.faster_rcnn.eval()
 
-        # Freeze the model parameters
+        # freeze the model
         for param in self.faster_rcnn.parameters():
             param.requires_grad = False
 
     def train(self, mode=True):
-        # Override the train method to keep the Faster R-CNN in eval mode
+        # override the train method to prevent the model from being set to training mode
+        # this is because the Faster R-CNN model is already in eval mode
         super(EncoderBUAttention, self).train(mode)
-        self.faster_rcnn.eval()
+        self.faster_rcnn.eval()  # set the Faster R-CNN model to eval mode
 
     def forward(self, images):
         batch_size = len(images)
 
-        # Move images to the device
-        images = [image.to(self.device) for image in images]
-
-        # Transform images
-        transformed_images = self.faster_rcnn.transform(images)
-
-        # Extract features
-        features = self.faster_rcnn.backbone(transformed_images.tensors)
-
-        # Ensure features is an OrderedDict
+        # Extract bottom-up features for the batch
+        transformed_images, _ = self.faster_rcnn.transform(images)
+        features = self.faster_rcnn.backbone(transformed_images.tensors.to(self.device))
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
 
-        # Get proposals from the RPN
         proposals, _ = self.faster_rcnn.rpn(transformed_images, features, None)
 
-        # Extract box features for each image
+        # extract box_features for each image
         box_features_list = []
         for image, proposals_per_image, image_shape in zip(
             images, proposals, transformed_images.image_sizes
         ):
-            # Get ROI pooled features
             box_features = self.faster_rcnn.roi_heads.box_roi_pool(
                 features, [proposals_per_image], [image_shape]
             )
-
-            # Pass through the ROI heads
             box_features = self.faster_rcnn.roi_heads.box_head(box_features)
 
-            # Predict classes and boxes
+            # box prediction
             class_logits, box_regression = self.faster_rcnn.roi_heads.box_predictor(
                 box_features
             )
 
-            # Post-process detections
+            # adapted postprocess detections to get the indices of the boxes that we want to keep thus box features
             indices_keep = _postprocess_detections_single_image(
                 self.faster_rcnn.roi_heads,
                 class_logits,
                 box_regression,
-                proposals_per_image,
+                [proposals_per_image],
                 image_shape,
             )
 
-            # Keep the box features of the selected indices
+            # keep the box_features of the kept proposals
             box_features = box_features[indices_keep]
 
-            # Pad box_features with zeros to maintain consistent shape
+            # Pad box_features with zeros to ensure a consistent shape
             pad_size = DETECTIONS_PER_IMG - box_features.shape[0]
-            if pad_size > 0:
-                padded_box_features = torch.cat(
-                    [
-                        box_features,
-                        torch.zeros(pad_size, box_features.shape[1]).to(self.device),
-                    ],
-                    dim=0,
-                )
-            else:
-                padded_box_features = box_features[:DETECTIONS_PER_IMG]
+            padded_box_features = torch.cat(
+                [
+                    box_features,
+                    torch.zeros(pad_size, box_features.shape[1], device=self.device),
+                ],
+                dim=0,
+            )
             box_features_list.append(padded_box_features)
 
-        # Stack the box features
+        # stack the padded box_features tensors along the batch dimension
         box_features_tensor = torch.stack(box_features_list, dim=0)
         return (
-            box_features_tensor  # Shape: (batch_size, DETECTIONS_PER_IMG, feature_dim)
+            box_features_tensor  # shape (batch_size, DETECTIONS_PER_IMG, feature_dim)
         )
 
 
@@ -253,17 +220,17 @@ class DecoderWithTransformer(nn.Module):
         self.dropout = dropout
 
         self.attention = Attention(
-            features_dim, decoder_dim, attention_dim
+            features_dim, embed_dim, attention_dim
         )  # attention network
 
         self.embedding = nn.Embedding(vocab_size, embed_dim).to(device)
         self.positional_encoding = PositionalEncoding(embed_dim, dropout=dropout).to(
             device
         )
-        decoder_layers = nn.TransformerDecoderLayer(
+        decoder_layer = nn.TransformerDecoderLayer(
             embed_dim, num_heads, decoder_dim, dropout
         ).to(device)
-        self.transformer_decoder = nn.TransformerDecoder(decoder_layers, num_layers).to(
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers).to(
             device
         )
         self.fc = weight_norm(nn.Linear(embed_dim, vocab_size)).to(device)
@@ -292,20 +259,23 @@ class DecoderWithTransformer(nn.Module):
         batch_size = image_features.size(0)
         num_pixels = image_features.size(1)
 
-        # Sort input data by decreasing lengths
-        caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(
-            dim=0, descending=True
-        )
+        # Sort input data by decreasing caption lengths
+        caption_lengths, sort_ind = caption_lengths.sort(dim=0, descending=True)
         image_features = image_features[sort_ind]
         encoded_captions = encoded_captions[sort_ind]
 
         # Embedding
         embeddings = self.embedding(
             encoded_captions
-        )  # Shape: (batch_size, max_caption_length, embed_dim)
+        )  # (batch_size, max_caption_length, embed_dim)
+
+        # Prepare decode_lengths
+        decode_lengths = (caption_lengths - 1).tolist()
+
+        # Permute for transformer input
         embeddings = embeddings.permute(
             1, 0, 2
-        )  # Shape: (max_caption_length, batch_size, embed_dim)
+        )  # (max_caption_length, batch_size, embed_dim)
         embeddings = self.positional_encoding(embeddings)
 
         # Generate the attention mask
@@ -320,22 +290,23 @@ class DecoderWithTransformer(nn.Module):
 
         # Project encoder output to embed_dim
         memory = self.encoder_projection(attention_weighted_encoding)
-        memory = memory.unsqueeze(0)  # Shape: (1, batch_size, embed_dim)
+        memory = memory.unsqueeze(0)  # (1, batch_size, embed_dim)
 
         # Transformer Decoder
         transformer_output = self.transformer_decoder(
             embeddings, memory, tgt_mask=tgt_mask
-        )
+        )  # (max_caption_length, batch_size, embed_dim)
 
         # Final output
         outputs = self.fc(
             transformer_output
-        )  # Shape: (max_caption_length, batch_size, vocab_size)
+        )  # (max_caption_length, batch_size, vocab_size)
         outputs = outputs.permute(
             1, 0, 2
-        )  # Shape: (batch_size, max_caption_length, vocab_size)
+        )  # (batch_size, max_caption_length, vocab_size)
 
-        return outputs, encoded_captions, caption_lengths, sort_ind
+        # Return outputs, sorted captions, decode lengths, sort indices
+        return outputs, encoded_captions, decode_lengths, sort_ind
 
     def sample(self, features, word_map, max_len=20, end_token_idx=None):
         """

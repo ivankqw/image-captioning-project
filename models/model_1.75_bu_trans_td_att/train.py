@@ -28,9 +28,9 @@ from model import EncoderBUAttention, DecoderWithTransformer
 from metrics import *
 
 # Adjust hyperparameters
-embed_dim = 512  # Dimension of word embeddings
-attention_dim = 512  # Dimension for attention network
-decoder_dim = 2048  # Dimension of transformer's feed-forward network
+embed_dim = 1024  # Dimension of word embeddings
+attention_dim = 1024  # Dimension for attention network
+decoder_dim = 1024  # Dimension of transformer's feed-forward network
 num_layers = 6  # Number of transformer layers
 num_heads = 8  # Number of attention heads
 dropout = 0.1  # Dropout rate
@@ -150,8 +150,12 @@ def main():
             outputs, caps_sorted, decode_lengths, sort_ind = decoder(
                 features, captions, caplens
             )
-
             targets = caps_sorted[:, 1:]  # Remove <start> token
+
+            # print the shape and device of outputs, decode lengths, and targets
+            # print(f"outputs shape: {outputs.shape}, device: {outputs.device}")
+            # print(f"decode lengths shape: {decode_lengths.shape}, device: {decode_lengths.device}")
+            # print(f"targets shape: {targets.shape}, device: {targets.device}")
 
             # Pack outputs and targets
             outputs_packed = nn.utils.rnn.pack_padded_sequence(
