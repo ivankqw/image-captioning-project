@@ -3,3 +3,4 @@ __pycache__
 flickr_data
 glove
 faster_rcnn_res101_vg.pth
+*.pth

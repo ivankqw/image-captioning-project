@@ -34,6 +34,7 @@ from metrics import (
 
 
 def main():
+    model_name = "model_2_baseline_ft_cnn_lstm"
     parser = argparse.ArgumentParser(description="Train image captioning model.")
     parser.add_argument(
         "--dataset", type=str, required=True, choices=["Flickr8k", "Flickr30k"]
@@ -226,9 +227,9 @@ def main():
         cider_scores.append(cider)
 
     # Save the models
-    os.makedirs("models/model_1_baseline_cnn_lstm", exist_ok=True)
-    torch.save(encoder.state_dict(), "models/model_1_baseline_cnn_lstm/encoder.pth")
-    torch.save(decoder.state_dict(), "models/model_1_baseline_cnn_lstm/decoder.pth")
+    os.makedirs(f"models/{model_name}", exist_ok=True)
+    torch.save(encoder.state_dict(), f"models/{model_name}/encoder.pth")
+    torch.save(decoder.state_dict(), f"models/{model_name}/decoder.pth")
 
     # Plot training and validation loss
     plt.figure()
@@ -238,7 +239,7 @@ def main():
     plt.ylabel("Loss")
     plt.title("Training vs Validation Loss")
     plt.legend()
-    plt.savefig("models/model_1_baseline_cnn_lstm/loss_plot.png")
+    plt.savefig(f"models/{model_name}/loss_plot.png")
     plt.close()
 
     # Plot evaluation metrics
@@ -250,7 +251,7 @@ def main():
     plt.ylabel("Score")
     plt.title("Evaluation Metrics over Epochs")
     plt.legend()
-    plt.savefig("models/model_1_baseline_cnn_lstm/metrics_plot.png")
+    plt.savefig(f"models/{model_name}/metrics_plot.png")
     plt.close()
 
 

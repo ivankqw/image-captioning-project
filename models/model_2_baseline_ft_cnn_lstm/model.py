@@ -4,19 +4,29 @@ import torchvision.models as models
 
 
 class EncoderCNN(nn.Module):
-    def __init__(self, embed_size: int = 256):
+    def __init__(self, embed_size: int = 256, device: str = "cuda"):
         super(EncoderCNN, self).__init__()
-        # Load the pre-trained ResNet-50 model with finetuned weights
-        resnet = models.resnet50()
+        # Load the pre-trained ResNet-50 model
+        resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+
+        # Modify the final fully connected layer to match the number of classes in CIFAR-10
+        num_ftrs = resnet.fc.in_features
+        resnet.fc = nn.Linear(num_ftrs, 10)
+
+        # Load the finetuned weights for CIFAR-10
         resnet.load_state_dict(torch.load("resnet50_cifar10_finetuned_epoch_50.pth"))
+
         # Remove the last fully connected layer to get feature maps
         self.resnet = nn.Sequential(*list(resnet.children())[:-1])
+
         # Freeze all convolutional layers
         for param in self.resnet.parameters():
             param.requires_grad = False
+
         # Add a fully connected layer to transform features to the desired embedding size
         self.fc = nn.Linear(resnet.fc.in_features, embed_size)
         self.init_weights()
+        self.device = device
 
     def init_weights(self):
         # Initialize the weights of the fully connected layer
@@ -26,7 +36,9 @@ class EncoderCNN(nn.Module):
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         # Extract feature maps from images
         with torch.no_grad():
-            features = self.resnet(images)  # Shape: (batch_size, 2048, 1, 1)
+            features = self.resnet(
+                images.to(self.device)
+            )  # Shape: (batch_size, 2048, 1, 1)
         features = features.view(features.size(0), -1)  # Flatten to (batch_size, 2048)
         # Transform features to the embedding size
         embeddings = self.fc(features)  # Shape: (batch_size, embed_size)
@@ -34,31 +46,32 @@ class EncoderCNN(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, device: str = "cuda"):
         super(LSTM, self).__init__()
         # Initialize weights for input, forget, cell, and output gates
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.device = device
 
         # Input gate parameters
-        self.W_i = nn.Parameter(torch.Tensor(input_size, hidden_size))
-        self.U_i = nn.Parameter(torch.Tensor(hidden_size, hidden_size))
-        self.b_i = nn.Parameter(torch.Tensor(hidden_size))
+        self.W_i = nn.Parameter(torch.Tensor(input_size, hidden_size).to(self.device))
+        self.U_i = nn.Parameter(torch.Tensor(hidden_size, hidden_size).to(self.device))
+        self.b_i = nn.Parameter(torch.Tensor(hidden_size).to(self.device))
 
         # Forget gate parameters
-        self.W_f = nn.Parameter(torch.Tensor(input_size, hidden_size))
-        self.U_f = nn.Parameter(torch.Tensor(hidden_size, hidden_size))
-        self.b_f = nn.Parameter(torch.Tensor(hidden_size))
+        self.W_f = nn.Parameter(torch.Tensor(input_size, hidden_size).to(self.device))
+        self.U_f = nn.Parameter(torch.Tensor(hidden_size, hidden_size).to(self.device))
+        self.b_f = nn.Parameter(torch.Tensor(hidden_size).to(self.device))
 
         # Cell gate parameters
-        self.W_c = nn.Parameter(torch.Tensor(input_size, hidden_size))
-        self.U_c = nn.Parameter(torch.Tensor(hidden_size, hidden_size))
-        self.b_c = nn.Parameter(torch.Tensor(hidden_size))
+        self.W_c = nn.Parameter(torch.Tensor(input_size, hidden_size).to(self.device))
+        self.U_c = nn.Parameter(torch.Tensor(hidden_size, hidden_size).to(self.device))
+        self.b_c = nn.Parameter(torch.Tensor(hidden_size).to(self.device))
 
         # Output gate parameters
-        self.W_o = nn.Parameter(torch.Tensor(input_size, hidden_size))
-        self.U_o = nn.Parameter(torch.Tensor(hidden_size, hidden_size))
-        self.b_o = nn.Parameter(torch.Tensor(hidden_size))
+        self.W_o = nn.Parameter(torch.Tensor(input_size, hidden_size).to(self.device))
+        self.U_o = nn.Parameter(torch.Tensor(hidden_size, hidden_size).to(self.device))
+        self.b_o = nn.Parameter(torch.Tensor(hidden_size).to(self.device))
 
         self.init_weights()
 
@@ -85,17 +98,25 @@ class LSTM(nn.Module):
 
 
 class DecoderRNN(nn.Module):
-    def __init__(self, embed_size=256, hidden_size=512, vocab_size=5000, dropout=0.5):
+    def __init__(
+        self,
+        embed_size=256,
+        hidden_size=512,
+        vocab_size=5000,
+        dropout=0.5,
+        device: str = "cuda",
+    ):
         super(DecoderRNN, self).__init__()
         # Embedding layer to convert word indices to embeddings
-        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.embedding = nn.Embedding(vocab_size, embed_size).to(device)
         # Custom LSTM cell
-        self.lstm_cell = LSTM(embed_size, hidden_size)
+        self.lstm_cell = LSTM(embed_size, hidden_size, device)
         # Fully connected layer to project hidden state to vocabulary space
-        self.fc = nn.Linear(hidden_size, vocab_size)
+        self.fc = nn.Linear(hidden_size, vocab_size).to(device)
         # Dropout layer for regularization
         self.dropout = nn.Dropout(dropout)
         self.hidden_size = hidden_size
+        self.device = device
         self.init_weights()
 
     def init_weights(self):
@@ -122,13 +143,11 @@ class DecoderRNN(nn.Module):
         embeddings = self.dropout(embeddings)
 
         batch_size, seq_len, _ = embeddings.size()
-        outputs = torch.zeros(batch_size, seq_len, self.fc.out_features).to(
-            features.device
-        )
+        outputs = torch.zeros(batch_size, seq_len, self.fc.out_features).to(self.device)
 
         # Initialize hidden and cell states to zeros
-        h_t = torch.zeros(batch_size, self.hidden_size).to(features.device)
-        c_t = torch.zeros(batch_size, self.hidden_size).to(features.device)
+        h_t = torch.zeros(batch_size, self.hidden_size).to(self.device)
+        c_t = torch.zeros(batch_size, self.hidden_size).to(self.device)
 
         # Unroll the LSTM for seq_len time steps
         for t in range(seq_len):
@@ -150,9 +169,9 @@ class DecoderRNN(nn.Module):
             sampled_ids: List of predicted word indices
         """
         sampled_ids = []
-        inputs = features  # Initial input is the image features
-        h_t = torch.zeros(1, self.hidden_size)
-        c_t = torch.zeros(1, self.hidden_size)
+        inputs = features.to(self.device)  # Initial input is the image features
+        h_t = torch.zeros(1, self.hidden_size).to(self.device)
+        c_t = torch.zeros(1, self.hidden_size).to(self.device)
 
         for _ in range(max_len):
             h_t, c_t = self.lstm_cell(inputs, h_t, c_t)

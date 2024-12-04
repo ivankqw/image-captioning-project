@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
@@ -24,18 +25,16 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import EncoderBUAttention, DecoderWithTransformer
+from model import EncoderBUAttention, DecoderWithAttention
 from metrics import *
 
-# Adjust hyperparameters
-embed_dim = 1024  # Dimension of word embeddings
-attention_dim = 1024  # Dimension for attention network
-decoder_dim = 1024  # Dimension of transformer's feed-forward network
-num_layers = 6  # Number of transformer layers
-num_heads = 8  # Number of attention heads
-dropout = 0.1  # Dropout rate
+embed_dim = 1024  # dimension of word embeddings
+attention_dim = 1024  # dimension of attention linear layers
+decoder_dim = 1024  # dimension of decoder RNN
+dropout = 0.5
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
+# cudnn.benchmark = True # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 
 
 def main():
@@ -46,6 +45,7 @@ def main():
     meteor_scores = []
     cider_scores = []
 
+    model_name = "model_3_butd_rnn"
     parser = argparse.ArgumentParser(description="Train image captioning model.")
     parser.add_argument(
         "--dataset", type=str, required=True, choices=["Flickr8k", "Flickr30k"]
@@ -107,23 +107,24 @@ def main():
 
     vocab_size = len(word2idx)
     encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderWithTransformer(
+    decoder = DecoderWithAttention(
         attention_dim=attention_dim,
         embed_dim=embed_dim,
         decoder_dim=decoder_dim,
         vocab_size=vocab_size,
-        num_layers=num_layers,
-        num_heads=num_heads,
         dropout=dropout,
         device=device,
     ).to(device)
 
     # Loss and optimizer
     criterion_ce = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"]).to(device)
+    # criterion_dis = nn.MultiLabelMarginLoss().to(device)
     params = list(filter(lambda p: p.requires_grad, encoder.parameters())) + list(
         decoder.parameters()
     )
     optimizer = optim.Adam(params, lr=1e-4)
+    # Since you can only run once, we might not need a scheduler
+    # Adjust learning rate manually if needed
 
     # Prepare image to captions mapping for evaluation
     val_image2captions = prepare_image2captions(val_images, captions_seqs, idx2word)
@@ -147,19 +148,34 @@ def main():
 
             # Forward pass
             features = encoder(images)
-            outputs, caps_sorted, decode_lengths = decoder(features, captions, caplens)
-            targets = caps_sorted[:, 1:]  # Remove <start> token
+            # scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
+            #     features, captions, caplens
+            # )
+            scores, caps_sorted, decode_lengths = decoder(features, captions, caplens)
 
-            # Pack outputs and targets
-            outputs_packed = nn.utils.rnn.pack_padded_sequence(
-                outputs, decode_lengths, batch_first=True
+            # max pooling across predicted words across time steps for discriminative supervision
+            # scores_d = scores_d.max(1)[0]
+
+            # # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+            targets = caps_sorted[:, 1:]
+            # targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
+            # targets_d.fill_(-1)
+
+            # for length in decode_lengths:
+            #     targets_d[:, : length - 1] = targets[:, : length - 1]
+
+            # remove timesteps we didn't decode at, or are pads
+            scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
+                scores, decode_lengths, batch_first=True
             )
-            targets_packed = nn.utils.rnn.pack_padded_sequence(
+            targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
                 targets, decode_lengths, batch_first=True
             )
+            scores = scores_packed_seq.data
+            targets = targets_packed_seq.data
 
             # Compute loss
-            loss_ce = criterion_ce(outputs_packed.data, targets_packed.data)
+            loss_ce = criterion_ce(scores, targets)
 
             # Backward and optimize
             optimizer.zero_grad()
@@ -246,10 +262,9 @@ def main():
         cider_scores.append(cider)
 
     # Save the models
-    os.makedirs("models/model_transformer", exist_ok=True)
-    torch.save(encoder.state_dict(), "models/model_transformer/encoder.pth")
-    torch.save(decoder.state_dict(), "models/model_transformer/decoder.pth")
-    print("Models saved successfully.")
+    os.makedirs(f"models/{model_name}", exist_ok=True)
+    torch.save(encoder.state_dict(), f"models/{model_name}/encoder.pth")
+    torch.save(decoder.state_dict(), f"models/{model_name}/decoder.pth")
 
     # Plot training and validation loss
     plt.figure()
@@ -259,7 +274,7 @@ def main():
     plt.ylabel("Loss")
     plt.title("Training vs Validation Loss")
     plt.legend()
-    plt.savefig("models/model_transformer/loss_plot.png")
+    plt.savefig(f"models/{model_name}/loss_plot.png")
     plt.close()
 
     # Plot evaluation metrics
@@ -271,7 +286,7 @@ def main():
     plt.ylabel("Score")
     plt.title("Evaluation Metrics over Epochs")
     plt.legend()
-    plt.savefig("models/model_transformer/metrics_plot.png")
+    plt.savefig(f"models/{model_name}/metrics_plot.png")
     plt.close()
 
 

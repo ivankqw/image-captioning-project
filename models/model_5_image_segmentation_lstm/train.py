@@ -8,7 +8,6 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -25,20 +24,12 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import EncoderBUAttention, DecoderWithAttention
+from model import DecoderRNN, EncoderCNN
 from metrics import *
-
-embed_dim = 1024  # dimension of word embeddings
-attention_dim = 1024  # dimension of attention linear layers
-decoder_dim = 1024  # dimension of decoder RNN
-dropout = 0.5
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-# cudnn.benchmark = True # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 
 
 def main():
-
+    model_name = "model_5_image_segmentation_lstm"
     train_losses = []
     val_losses = []
     bleu_scores = []
@@ -65,9 +56,7 @@ def main():
     print(f"Vocabulary size: {len(word2idx)}")
 
     # Convert captions to sequences
-    captions_seqs, max_length = convert_captions_to_sequences(
-        image_captions, word2idx, return_caplens=False
-    )
+    captions_seqs, max_length = convert_captions_to_sequences(image_captions, word2idx)
     print(f"Maximum caption length: {max_length}")
 
     # Get data transformations
@@ -104,20 +93,27 @@ def main():
     print(f"Number of training batches: {len(train_loader)}")
     print(f"Number of validation batches: {len(val_loader)}")
 
+    # Device configuration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # Initialize models
+    embed_size = 256
+    hidden_size = 512
     vocab_size = len(word2idx)
-    encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderWithAttention(
-        attention_dim=attention_dim,
-        embed_dim=embed_dim,
-        decoder_dim=decoder_dim,
+    input_size = embed_size * 2  # Combined feature size (global + object features)
+
+    # Initialize models
+    encoder = EncoderCNN(embed_size=embed_size, device=device).to(device)
+    decoder = DecoderRNN(
+        input_size=input_size,
+        embed_size=embed_size,
+        hidden_size=hidden_size,
         vocab_size=vocab_size,
-        dropout=dropout,
-        device=device,
     ).to(device)
 
     # Loss and optimizer
-    criterion_ce = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"]).to(device)
-    criterion_dis = nn.MultiLabelMarginLoss().to(device)
+    criterion = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"])
     params = list(filter(lambda p: p.requires_grad, encoder.parameters())) + list(
         decoder.parameters()
     )
@@ -140,68 +136,43 @@ def main():
         decoder.train()
         total_loss = 0
 
-        for i, (images, captions, caplens) in enumerate(train_loader):
+        for i, (images, captions, _) in enumerate(train_loader):
             images = images.to(device)
             captions = captions.to(device)
-            caplens = torch.tensor(caplens).to(device)
 
             # Forward pass
             features = encoder(images)
-            # scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
-            #     features, captions, caplens
-            # )
-            scores, caps_sorted, decode_lengths = decoder(features, captions, caplens)
+            outputs = decoder(features, captions)
 
-            # max pooling across predicted words across time steps for discriminative supervision
-            # scores_d = scores_d.max(1)[0]
+            # Exclude the first time step from outputs
+            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1 , vocab_size)
+            targets = captions[:, 1:]  # Exclude the first <start> token
 
-            # # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
-            targets = caps_sorted[:, 1:]
-            # targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
-            # targets_d.fill_(-1)
-
-            # for length in decode_lengths:
-            #     targets_d[:, : length - 1] = targets[:, : length - 1]
-
-            # remove timesteps we didn't decode at, or are pads
-            scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
-                scores, decode_lengths, batch_first=True
-            )
-            targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
-                targets, decode_lengths, batch_first=True
-            )
-            scores = scores_packed_seq.data
-            targets = targets_packed_seq.data
+            # Reshape for loss computation
+            outputs = outputs.reshape(-1, vocab_size)
+            targets = targets.reshape(-1)
 
             # Compute loss
-            loss_ce = criterion_ce(scores, targets)
+            loss = criterion(outputs, targets)
 
             # Backward and optimize
             optimizer.zero_grad()
-            loss_ce.backward()
+            loss.backward()
             nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=5)
             optimizer.step()
 
-            total_loss += loss_ce.item()
+            total_loss += loss.item()
 
             if i % 500 == 0:
                 print(
-                    f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss_ce.item():.4f}"
+                    f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss.item():.4f}"
                 )
 
         # Calculate average training loss for the epoch
         avg_train_loss = total_loss / total_step
 
         # Validation
-        val_loss = evaluate(
-            encoder,
-            decoder,
-            val_loader,
-            criterion_ce,
-            device,
-            vocab_size,
-            caplens_required=True,
-        )
+        val_loss = evaluate(encoder, decoder, val_loader, criterion, device, vocab_size)
 
         # Calculate evaluation metrics
         bleu = calculate_bleu_score(
@@ -214,7 +185,6 @@ def main():
             idx2word,
             device,
             word2idx,
-            requires_wordmap=True,
         )
         meteor = calculate_meteor_score(
             encoder,
@@ -226,7 +196,6 @@ def main():
             idx2word,
             device,
             word2idx,
-            requires_wordmap=True,
         )
         cider = calculate_cider_score(
             encoder,
@@ -238,7 +207,6 @@ def main():
             idx2word,
             device,
             word2idx,
-            requires_wordmap=True,
         )
 
         # Print epoch summary
@@ -253,7 +221,7 @@ def main():
             f"Time: {epoch_duration:.2f}s"
         )
 
-        # Append average training loss instead of total loss
+        # **Append average training loss instead of total loss**
         train_losses.append(avg_train_loss)
         val_losses.append(val_loss)
         bleu_scores.append(bleu)
@@ -261,10 +229,9 @@ def main():
         cider_scores.append(cider)
 
     # Save the models
-    os.makedirs("models/model_1.5_butd_attention", exist_ok=True)
-    torch.save(encoder.state_dict(), "models/model_1.5_butd_attention/encoder.pth")
-    torch.save(decoder.state_dict(), "models/model_1.5_butd_attention/decoder.pth")
-    print("Models saved successfully.")
+    os.makedirs(f"models/{model_name}", exist_ok=True)
+    torch.save(encoder.state_dict(), f"models/{model_name}/encoder.pth")
+    torch.save(decoder.state_dict(), f"models/{model_name}/decoder.pth")
 
     # Plot training and validation loss
     plt.figure()
@@ -274,7 +241,7 @@ def main():
     plt.ylabel("Loss")
     plt.title("Training vs Validation Loss")
     plt.legend()
-    plt.savefig("models/model_1.5_butd_attention/loss_plot.png")
+    plt.savefig(f"models/{model_name}/loss_plot.png")
     plt.close()
 
     # Plot evaluation metrics
@@ -286,7 +253,7 @@ def main():
     plt.ylabel("Score")
     plt.title("Evaluation Metrics over Epochs")
     plt.legend()
-    plt.savefig("models/model_1.5_butd_attention/metrics_plot.png")
+    plt.savefig(f"models/{model_name}/metrics_plot.png")
     plt.close()
 
 

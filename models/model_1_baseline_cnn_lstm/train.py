@@ -22,7 +22,7 @@ from data.preprocessing import (
     build_vocabulary,
     convert_captions_to_sequences,
     get_splits,
-    prepare_image2captions
+    prepare_image2captions,
 )
 from model import DecoderRNN, EncoderCNN
 from metrics import (
@@ -34,6 +34,7 @@ from metrics import (
 
 
 def main():
+    model_name = "model_1_baseline_cnn_lstm"
     parser = argparse.ArgumentParser(description="Train image captioning model.")
     parser.add_argument(
         "--dataset", type=str, required=True, choices=["Flickr8k", "Flickr30k"]
@@ -44,7 +45,7 @@ def main():
     dataset_dir = f"./flickr_data/{args.dataset}_Dataset/Images"
     captions_file = f"./flickr_data/{args.dataset}_Dataset/captions.txt"
     image_dir = dataset_dir
-    
+
     train_losses = []
     val_losses = []
     bleu_scores = []
@@ -58,9 +59,7 @@ def main():
     word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=5000)
 
     # Convert captions to sequences
-    captions_seqs, max_length = convert_captions_to_sequences(
-        image_captions, word2idx
-    )
+    captions_seqs, max_length = convert_captions_to_sequences(image_captions, word2idx)
 
     # Get data transformations
     train_transform = get_transform(train=True)
@@ -140,7 +139,9 @@ def main():
             targets = captions[:, 1:]  # Exclude the first <start> token
 
             # Exclude the first time step from outputs
-            outputs = outputs[:, 1:, :]  # Now outputs and targets have the same sequence length
+            outputs = outputs[
+                :, 1:, :
+            ]  # Now outputs and targets have the same sequence length
 
             # Reshape for loss computation
             outputs = outputs.reshape(-1, vocab_size)
@@ -215,44 +216,42 @@ def main():
         end_time = time.time()
         epoch_time = end_time - start_time
 
-        print(
-            f"Epoch [{epoch+1}/{num_epochs}] completed in {epoch_time:.2f} seconds."
-        )
+        print(f"Epoch [{epoch+1}/{num_epochs}] completed in {epoch_time:.2f} seconds.")
         print(
             f"BLEU Score: {bleu:.4f}, METEOR Score: {meteor:.4f}, CIDEr Score: {cider:.4f}\n"
         )
-        
+
         val_losses.append(val_loss)
         bleu_scores.append(bleu)
         meteor_scores.append(meteor)
         cider_scores.append(cider)
 
     # Save the models
-    os.makedirs("models/model_1_baseline_cnn_lstm", exist_ok=True)
-    torch.save(encoder.state_dict(), "models/model_1_baseline_cnn_lstm/encoder.pth")
-    torch.save(decoder.state_dict(), "models/model_1_baseline_cnn_lstm/decoder.pth")
-    
+    os.makedirs(f"models/{model_name}", exist_ok=True)
+    torch.save(encoder.state_dict(), f"models/{model_name}/encoder.pth")
+    torch.save(decoder.state_dict(), f"models/{model_name}/decoder.pth")
+
     # Plot training and validation loss
     plt.figure()
-    plt.plot(range(1, num_epochs + 1), train_losses, label='Training Loss')
-    plt.plot(range(1, num_epochs + 1), val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training vs Validation Loss')
+    plt.plot(range(1, num_epochs + 1), train_losses, label="Training Loss")
+    plt.plot(range(1, num_epochs + 1), val_losses, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training vs Validation Loss")
     plt.legend()
-    plt.savefig('models/model_1_baseline_cnn_lstm/loss_plot.png')
+    plt.savefig(f"models/{model_name}/loss_plot.png")
     plt.close()
 
     # Plot evaluation metrics
     plt.figure()
-    plt.plot(range(1, num_epochs + 1), bleu_scores, label='BLEU Score')
-    plt.plot(range(1, num_epochs + 1), meteor_scores, label='METEOR Score')
-    plt.plot(range(1, num_epochs + 1), cider_scores, label='CIDEr Score')
-    plt.xlabel('Epoch')
-    plt.ylabel('Score')
-    plt.title('Evaluation Metrics over Epochs')
+    plt.plot(range(1, num_epochs + 1), bleu_scores, label="BLEU Score")
+    plt.plot(range(1, num_epochs + 1), meteor_scores, label="METEOR Score")
+    plt.plot(range(1, num_epochs + 1), cider_scores, label="CIDEr Score")
+    plt.xlabel("Epoch")
+    plt.ylabel("Score")
+    plt.title("Evaluation Metrics over Epochs")
     plt.legend()
-    plt.savefig('models/model_1_baseline_cnn_lstm/metrics_plot.png')
+    plt.savefig(f"models/{model_name}/metrics_plot.png")
     plt.close()
 
 
