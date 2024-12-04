@@ -80,14 +80,16 @@ def main():
 
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
 
     # Initialize models
     embed_size = 256
     hidden_size = 512
     vocab_size = len(word2idx)
-    input_size = embed_size * 2  # Combined feature size
+    input_size = embed_size  # As per EncoderCNN's output
 
-    encoder = EncoderCNN(embed_size=embed_size).to(device)
+    # Initialize EncoderCNN with device
+    encoder = EncoderCNN(embed_size=embed_size, device=device).to(device)
     decoder = DecoderRNN(
         input_size=input_size,
         embed_size=embed_size,
@@ -112,24 +114,44 @@ def main():
 
     encoder.eval()
     decoder.eval()
+
+    # Retrieve <end> and <start> token indices
     end_token_idx = word2idx.get('<end>', None)
+    start_token_idx = word2idx.get('<start>', None)
 
     if end_token_idx is None:
         print("The vocabulary does not contain an <end> token.")
         return
+    if start_token_idx is None:
+        print("The vocabulary does not contain a <start> token.")
+        return
 
     # Generate captions on test images
     for i, (images, captions, image_ids) in enumerate(test_loader):
-        if i >= 10:
-            break  # Stop after processing 10 images
+        if i >= 6:
+            break  # Stop after processing 6 images
 
         images = images.to(device)
         with torch.no_grad():
-            features = encoder(images)
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
-        
+            # Forward pass through encoder
+            global_features, object_features = encoder(images)
+
+            # Forward pass through decoder's sample method with correct arguments
+            sampled_ids = decoder.sample(
+                global_features,
+                object_features,
+                start_token_idx=start_token_idx,
+                end_token_idx=end_token_idx
+            )
+
         # Convert word IDs to words
         sampled_caption = [idx2word.get(word_id, '<unk>') for word_id in sampled_ids]
+
+        # Remove words after (and including) the '<end>' token
+        if '<end>' in sampled_caption:
+            end_index = sampled_caption.index('<end>')
+            sampled_caption = sampled_caption[:end_index]
+
         generated_caption = ' '.join(sampled_caption)
 
         # Get ground truth captions

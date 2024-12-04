@@ -26,12 +26,56 @@ from data.preprocessing import (
 )
 from model import DecoderRNN, EncoderCNN
 from metrics import (
-    evaluate,
     calculate_bleu_score,
     calculate_meteor_score,
     calculate_cider_score,
 )
 
+# Evaluate function: Computes validation loss on a given dataset
+def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
+    """
+    Evaluate the model on the validation set.
+    Args:
+        encoder: Encoder model.
+        decoder: Decoder model.
+        data_loader: DataLoader for the validation set.
+        criterion: Loss function.
+        device: Computation device (CPU or GPU).
+        vocab_size: Size of the vocabulary.
+    Returns:
+        average_loss: Average validation loss.
+    """
+    encoder.eval()  # Set encoder to evaluation mode
+    decoder.eval()  # Set decoder to evaluation mode
+    total_loss = 0
+    total_samples = 0
+
+    with torch.no_grad():  # Disable gradient computation for evaluation
+        for images, captions, _ in data_loader:
+            # Move data to the computation device
+            images = images.to(device)
+            captions = captions.to(device)
+
+            # Forward pass through encoder and decoder
+            features = encoder(images)
+            outputs = decoder(features, captions)
+
+            # Exclude the first time step from outputs and targets
+            outputs = outputs[:, 1:, :]  # Ensure outputs and targets have the same length
+            targets = captions[:, 1:]  # Exclude the first <start> token from targets
+
+            # Reshape outputs and targets for loss computation
+            outputs = outputs.reshape(-1, vocab_size)
+            targets = targets.reshape(-1)
+
+            # Compute loss
+            loss = criterion(outputs, targets)
+            total_loss += loss.item()
+            total_samples += 1
+
+    # Calculate average loss
+    average_loss = total_loss / total_samples
+    return average_loss
 
 def main():
     parser = argparse.ArgumentParser(description="Train image captioning model.")

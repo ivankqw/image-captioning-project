@@ -28,13 +28,6 @@ from model import DecoderRNN, EncoderCNN
 from metrics import *
 
 def main():
-    
-    train_losses = []
-    val_losses = []
-    bleu_scores = []
-    meteor_scores = []
-    cider_scores = []
-    
     parser = argparse.ArgumentParser(description="Train image captioning model.")
     parser.add_argument(
         "--dataset", type=str, required=True, choices=["Flickr8k", "Flickr30k"]
@@ -46,6 +39,12 @@ def main():
     captions_file = f"./flickr_data/{args.dataset}_Dataset/captions.txt"
     image_dir = dataset_dir
 
+    train_losses = []
+    val_losses = []
+    bleu_scores = []
+    meteor_scores = []
+    cider_scores = []
+    
     # Load captions
     caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
     print(f"Total captions loaded: {len(caption_df)}")
@@ -100,31 +99,29 @@ def main():
     embed_size = 256
     hidden_size = 512
     vocab_size = len(word2idx)
-    input_size = embed_size * 2  # Combined feature size (global + object features)
+    input_size = embed_size  # Must match EncoderCNN's embed_size
+    top_k = 5  # Number of objects to consider
 
-    # Initialize models
-    encoder = EncoderCNN(embed_size=embed_size, device=device).to(device)
+    # Initialize encoder and decoder
+    encoder = EncoderCNN(embed_size=embed_size, device=device, top_k=top_k).to(device)
     decoder = DecoderRNN(
         input_size=input_size,
         embed_size=embed_size,
         hidden_size=hidden_size,
-        vocab_size=vocab_size
+        vocab_size=vocab_size,
+        dropout=0.5
     ).to(device)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"])
-    params = list(filter(lambda p: p.requires_grad, encoder.parameters())) + list(
-        decoder.parameters()
-    )
-    optimizer = optim.Adam(params, lr=1e-4)
-    # Since you can only run once, we might not need a scheduler
-    # Adjust learning rate manually if needed
-
+    params = list(encoder.parameters()) + list(decoder.parameters())
+    optimizer = optim.Adam(params, lr=1e-4, weight_decay=1e-4)
+    
     # Prepare image to captions mapping for evaluation
     val_image2captions = prepare_image2captions(val_images, captions_seqs, idx2word)
 
     # Training settings
-    num_epochs = 2  # Adjust as needed
+    num_epochs = 10
     total_step = len(train_loader)
     end_token_idx = word2idx["<end>"]
 
@@ -140,16 +137,16 @@ def main():
             captions = captions.to(device)
 
             # Forward pass
-            features = encoder(images)
-            outputs = decoder(features, captions)
+            global_features, object_features = encoder(images)
+            outputs = decoder(global_features, object_features, captions)
 
-            # Exclude the first time step from outputs
-            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1 , vocab_size)
-            targets = captions[:, 1:]  # Exclude the first <start> token
+            # Exclude the first time step from outputs and targets
+            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1, vocab_size)
+            targets = captions[:, 1:]     # Shape: (batch_size, seq_len -1)
 
-            # Reshape for loss computation
-            outputs = outputs.reshape(-1, vocab_size)
-            targets = targets.reshape(-1)
+            # Reshape outputs and targets for loss computation
+            outputs = outputs.reshape(-1, vocab_size)  # Shape: (batch_size * (seq_len -1), vocab_size)
+            targets = targets.reshape(-1)              # Shape: (batch_size * (seq_len -1))
 
             # Compute loss
             loss = criterion(outputs, targets)
@@ -162,7 +159,7 @@ def main():
 
             total_loss += loss.item()
 
-            if i % 500 == 0:
+            if i % 300 == 0:
                 print(
                     f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss.item():.4f}"
                 )
@@ -219,8 +216,8 @@ def main():
             f"CIDEr: {cider:.4f}, "
             f"Time: {epoch_duration:.2f}s"
         )
-        
-        # **Append average training loss instead of total loss**
+
+        # Save metrics
         train_losses.append(avg_train_loss)
         val_losses.append(val_loss)
         bleu_scores.append(bleu)

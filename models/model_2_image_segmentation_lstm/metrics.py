@@ -7,7 +7,6 @@ from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 from nltk.translate.meteor_score import meteor_score
 from PIL import Image
 
-# Evaluate function: Computes validation loss on a given dataset
 def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
     """
     Evaluate the model on the validation set.
@@ -32,17 +31,19 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
             images = images.to(device)
             captions = captions.to(device)
 
-            # Forward pass through encoder and decoder
-            features = encoder(images)
-            outputs = decoder(features, captions)
+            # Forward pass through encoder
+            global_features, object_features = encoder(images)
+
+            # Forward pass through decoder with correct arguments
+            outputs = decoder(global_features, object_features, captions)
 
             # Exclude the first time step from outputs and targets
-            outputs = outputs[:, 1:, :]  # Ensure outputs and targets have the same length
-            targets = captions[:, 1:]  # Exclude the first <start> token from targets
+            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1, vocab_size)
+            targets = captions[:, 1:]     # Shape: (batch_size, seq_len -1)
 
             # Reshape outputs and targets for loss computation
-            outputs = outputs.reshape(-1, vocab_size)
-            targets = targets.reshape(-1)
+            outputs = outputs.reshape(-1, vocab_size)  # Shape: (batch_size * (seq_len -1), vocab_size)
+            targets = targets.reshape(-1)              # Shape: (batch_size * (seq_len -1))
 
             # Compute loss
             loss = criterion(outputs, targets)
@@ -94,9 +95,10 @@ def calculate_bleu_score(
             image = transform(image).unsqueeze(0).to(device)
 
             # Generate caption
-            features = encoder(image)
+            global_features, object_features = encoder(image)
+            start_token_idx = word2idx["<start>"]
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            sampled_ids = decoder.sample(global_features, object_features, start_token_idx=start_token_idx, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
@@ -164,9 +166,10 @@ def calculate_meteor_score(
             image = transform(image).unsqueeze(0).to(device)
 
             # Generate caption
-            features = encoder(image)
+            global_features, object_features = encoder(image)
+            start_token_idx = word2idx["<start>"]
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            sampled_ids = decoder.sample(global_features, object_features, start_token_idx=start_token_idx, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
@@ -240,12 +243,14 @@ def calculate_cider_score(
             image = transform(image).unsqueeze(0).to(device)
 
             # Generate caption
-            features = encoder(image)
+            global_features, object_features = encoder(image)
+            start_token_idx = word2idx["<start>"]
             end_token_idx = word2idx["<end>"]
-            sampled_ids = decoder.sample(features, end_token_idx=end_token_idx)
+            sampled_ids = decoder.sample(global_features, object_features, start_token_idx=start_token_idx, end_token_idx=end_token_idx)
             sampled_caption = [
                 idx2word.get(word_id, "<unk>") for word_id in sampled_ids
             ]
+            
             # Prepare generated caption
             sampled_caption = [
                 word.lower()
