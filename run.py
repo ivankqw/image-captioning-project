@@ -23,10 +23,11 @@ def main():
         required=True,
         choices=[
             "model_1_baseline_cnn_lstm",
-            "model_1.5_butd_attention",
-            "model_2_image_segmentation_lstm",
-            "model_3_attention_image_segmentation_lstm",
-            "model_4_vision_transformer",
+            "model_2_baseline_ft_cnn_lstm",
+            "model_3_butd_rnn",
+            "model_4_butd_lstm_att",
+            "model_5_image_segmentation_lstm",
+            "model_6_butd_trans_att",
         ],
         help="Specify the model to run.",
     )

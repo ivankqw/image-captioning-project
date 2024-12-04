@@ -14,7 +14,11 @@ class EncoderCNN(nn.Module):
         resnet.fc = nn.Linear(num_ftrs, 10)
 
         # Load the finetuned weights for CIFAR-10
-        resnet.load_state_dict(torch.load("resnet50_cifar10_finetuned_epoch_50.pth"))
+        resnet.load_state_dict(
+            torch.load(
+                "models/model_2_baseline_ft_cnn_lstm/resnet50_cifar10_finetuned_epoch_50.pth"
+            )
+        )
 
         # Remove the last fully connected layer to get feature maps
         self.resnet = nn.Sequential(*list(resnet.children())[:-1])

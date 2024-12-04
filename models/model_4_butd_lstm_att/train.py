@@ -148,21 +148,11 @@ def main():
 
             # Forward pass
             features = encoder(images)
-            # scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
-            #     features, captions, caplens
-            # )
+
             scores, caps_sorted, decode_lengths = decoder(features, captions, caplens)
 
-            # max pooling across predicted words across time steps for discriminative supervision
-            # scores_d = scores_d.max(1)[0]
-
-            # # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+            # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
             targets = caps_sorted[:, 1:]
-            # targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
-            # targets_d.fill_(-1)
-
-            # for length in decode_lengths:
-            #     targets_d[:, : length - 1] = targets[:, : length - 1]
 
             # remove timesteps we didn't decode at, or are pads
             scores_packed_seq = nn.utils.rnn.pack_padded_sequence(

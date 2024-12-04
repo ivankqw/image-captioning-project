@@ -10,7 +10,14 @@ from PIL import Image
 
 # Evaluate function: Computes validation loss on a given dataset
 def evaluate(
-    encoder, decoder, data_loader, criterion, device, vocab_size, caplens_required=False
+    encoder,
+    decoder,
+    data_loader,
+    criterion,
+    device,
+    vocab_size,
+    caplens_required=False,
+    has_extra_timestep=True,
 ):
     """
     Evaluate the model on the validation set.
@@ -40,22 +47,12 @@ def evaluate(
             # Forward pass through encoder and decoder
             features = encoder(images)
             if caplens_required:
-                # scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
-                #     features, captions, caplens
-                # )
+
                 scores, caps_sorted, decode_lengths = decoder(
                     features, captions, caplens
                 )
-                # # max pooling across predicted words across time steps for discriminative supervision
-                # scores_d = scores_d.max(1)[0]
-
-                # # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+                # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
                 targets = caps_sorted[:, 1:]
-                # targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
-                # targets_d.fill_(-1)
-
-                # for length in decode_lengths:
-                #     targets_d[:, : length - 1] = targets[:, : length - 1]
 
                 # remove timesteps we didn't decode at, or are pads
                 scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
@@ -67,11 +64,14 @@ def evaluate(
                 outputs = scores_packed_seq.data
                 targets = targets_packed_seq.data
             else:
+
                 outputs = decoder(features, captions)
-                # Exclude the first time step from outputs and targets
-                outputs = outputs[
-                    :, 1:, :
-                ]  # Ensure outputs and targets have the same length
+                if has_extra_timestep:
+                    # Exclude the first time step from outputs and targets
+                    outputs = outputs[
+                        :, 1:, :
+                    ]  # Ensure outputs and targets have the same length
+
                 targets = captions[
                     :, 1:
                 ]  # Exclude the first <start> token from targets

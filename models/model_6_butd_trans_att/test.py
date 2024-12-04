@@ -14,13 +14,21 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import EncoderBUAttention, DecoderWithAttention
+from model import EncoderBUAttention, DecoderWithTransformer
 import nltk
 
-embed_dim = 1024  # dimension of word embeddings
-attention_dim = 1024  # dimension of attention linear layers
-decoder_dim = 1024  # dimension of decoder RNN
-dropout = 0.5
+# embed_dim = 1024  # dimension of word embeddings
+# attention_dim = 1024  # dimension of attention linear layers
+# decoder_dim = 1024  # dimension of decoder RNN
+# dropout = 0.5
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# print(f"Using device: {device}")
+embed_dim = 1024  # Dimension of word embeddings
+attention_dim = 1024  # Dimension for attention network
+decoder_dim = 1024  # Dimension of transformer's feed-forward network
+num_layers = 6  # Number of transformer layers
+num_heads = 8  # Number of attention heads
+dropout = 0.1  # Dropout rate
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
@@ -43,7 +51,7 @@ def main():
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="models/model_4_butd_lstm_att",
+        default="models/model_6_butd_trans_att",
         help="Directory for models",
     )
     args = parser.parse_args()
@@ -86,11 +94,13 @@ def main():
 
     vocab_size = len(word2idx)
     encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderWithAttention(
+    decoder = DecoderWithTransformer(
         attention_dim=attention_dim,
         embed_dim=embed_dim,
         decoder_dim=decoder_dim,
         vocab_size=vocab_size,
+        num_layers=num_layers,
+        num_heads=num_heads,
         dropout=dropout,
         device=device,
     ).to(device)

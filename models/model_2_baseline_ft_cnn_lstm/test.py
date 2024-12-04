@@ -51,7 +51,7 @@ def main():
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="models/model_1_baseline_cnn_lstm",
+        default="models/model_2_baseline_ft_cnn_lstm",
         help="Directory for models",
     )
     args = parser.parse_args()
