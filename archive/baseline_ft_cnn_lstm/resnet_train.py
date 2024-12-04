@@ -1,7 +1,7 @@
 import torch
 import torchvision
-import torchvision.transforms as transforms
 import torchvision.models as models
+import torchvision.transforms as transforms
 
 # Define the device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

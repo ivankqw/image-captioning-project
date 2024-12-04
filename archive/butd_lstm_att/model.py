@@ -1,4 +1,5 @@
-from typing import OrderedDict, List, Tuple
+from typing import List, OrderedDict, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

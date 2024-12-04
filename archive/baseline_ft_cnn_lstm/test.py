@@ -2,10 +2,12 @@ import argparse
 import os
 import random
 
+import nltk
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
+from model import DecoderRNN, EncoderCNN
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from data.dataset import FlickrDataset, collate_fn, get_transform
 from data.preprocessing import (
@@ -14,18 +16,24 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import EncoderBUAttention, DecoderWithAttention
-import nltk
 
-embed_dim = 1024  # dimension of word embeddings
-attention_dim = 1024  # dimension of attention linear layers
-decoder_dim = 1024  # dimension of decoder RNN
-dropout = 0.5
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
+
+def download_nltk_resources():
+    """Download necessary NLTK resources if not already present."""
+    try:
+        nltk.data.find("tokenizers/punkt")
+    except LookupError:
+        nltk.download("punkt", quiet=True)
+    try:
+        nltk.data.find("corpora/wordnet")
+    except LookupError:
+        nltk.download("wordnet", quiet=True)
 
 
 def main():
+    # Download NLTK resources if necessary
+    download_nltk_resources()
+
     parser = argparse.ArgumentParser(description="Test image captioning model.")
     parser.add_argument(
         "--dataset",
@@ -43,7 +51,7 @@ def main():
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="models/model_2_image_segmentation_lstm",
+        default="models/model_2_baseline_ft_cnn_lstm",
         help="Directory for models",
     )
     args = parser.parse_args()
@@ -84,15 +92,17 @@ def main():
         num_workers=2,
     )
 
+    # Device configuration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Initialize models
+    embed_size = 256
+    hidden_size = 512
     vocab_size = len(word2idx)
-    encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderWithAttention(
-        attention_dim=attention_dim,
-        embed_dim=embed_dim,
-        decoder_dim=decoder_dim,
-        vocab_size=vocab_size,
-        dropout=dropout,
-        device=device,
+
+    encoder = EncoderCNN(embed_size=embed_size).to(device)
+    decoder = DecoderRNN(
+        embed_size=embed_size, hidden_size=hidden_size, vocab_size=vocab_size
     ).to(device)
 
     # Load trained models

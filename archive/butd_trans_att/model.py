@@ -1,14 +1,15 @@
+from collections import OrderedDict  # Corrected import for OrderedDict
 from typing import List, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import weight_norm
+from torchvision.models.detection import FasterRCNN_ResNet50_FPN_V2_Weights
 from torchvision.models.detection import (
     fasterrcnn_resnet50_fpn_v2 as fasterrcnn_resnet50_fpn,
 )
-from torchvision.models.detection import FasterRCNN_ResNet50_FPN_V2_Weights
 from torchvision.ops import boxes as box_ops
-from collections import OrderedDict  # Corrected import for OrderedDict
 
 SCORE_THRESH = 0.2  # Used for score thresholding
 NMS_THRESH = 0.5  # Non-maximum suppression threshold

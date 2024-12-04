@@ -1,8 +1,9 @@
 import argparse
 import os
 import random
-import time  # Import time for tracking epoch duration
+import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -10,12 +11,14 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
 
 # Ensure reproducibility
 torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
+
+from metrics import *
+from model import DecoderWithAttention, EncoderBUAttention
 
 from data.dataset import FlickrDataset, collate_fn, get_transform
 from data.preprocessing import (
@@ -24,17 +27,25 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import DecoderRNN, EncoderBUAttention
-from metrics import (
-    evaluate,
-    calculate_bleu_score,
-    calculate_meteor_score,
-    calculate_cider_score,
-)
+
+embed_dim = 1024  # dimension of word embeddings
+attention_dim = 1024  # dimension of attention linear layers
+decoder_dim = 1024  # dimension of decoder RNN
+dropout = 0.5
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 
 def main():
-    model_name = "model_3_butd_rnn"
+
+    train_losses = []
+    val_losses = []
+    bleu_scores = []
+    meteor_scores = []
+    cider_scores = []
+
+    model_name = "model_4_butd_lstm_att"
+
     parser = argparse.ArgumentParser(description="Train image captioning model.")
     parser.add_argument(
         "--dataset", type=str, required=True, choices=["Flickr8k", "Flickr30k"]
@@ -46,20 +57,19 @@ def main():
     captions_file = f"./flickr_data/{args.dataset}_Dataset/captions.txt"
     image_dir = dataset_dir
 
-    train_losses = []
-    val_losses = []
-    bleu_scores = []
-    meteor_scores = []
-    cider_scores = []
-
     # Load captions
     caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
+    print(f"Total captions loaded: {len(caption_df)}")
 
     # Build vocabulary
     word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=5000)
+    print(f"Vocabulary size: {len(word2idx)}")
 
     # Convert captions to sequences
-    captions_seqs, max_length = convert_captions_to_sequences(image_captions, word2idx)
+    captions_seqs, max_length = convert_captions_to_sequences(
+        image_captions, word2idx, return_caplens=False
+    )
+    print(f"Maximum caption length: {max_length}")
 
     # Get data transformations
     train_transform = get_transform(train=True)
@@ -68,6 +78,8 @@ def main():
     # Split data into training and validation sets
     image_names = list(image_captions.keys())
     train_images, val_images, _ = get_splits(image_names, test_size=0.2)
+    print(f"Training samples: {len(train_images)}")
+    print(f"Validation samples: {len(val_images)}")
 
     # Create datasets and data loaders
     train_dataset = FlickrDataset(
@@ -90,145 +102,150 @@ def main():
         collate_fn=collate_fn,
         num_workers=2,
     )
+    print(f"Number of training batches: {len(train_loader)}")
+    print(f"Number of validation batches: {len(val_loader)}")
 
-    # Device configuration
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    # Initialize models
-    embed_size = 256
-    hidden_size = 512
     vocab_size = len(word2idx)
     encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderRNN(
-        embed_size=embed_size, hidden_size=hidden_size, vocab_size=vocab_size
+    decoder = DecoderWithAttention(
+        attention_dim=attention_dim,
+        embed_dim=embed_dim,
+        decoder_dim=decoder_dim,
+        vocab_size=vocab_size,
+        dropout=dropout,
+        device=device,
     ).to(device)
 
     # Loss and optimizer
-    criterion = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"])
+    criterion_ce = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"]).to(device)
+    criterion_dis = nn.MultiLabelMarginLoss().to(device)
     params = list(filter(lambda p: p.requires_grad, encoder.parameters())) + list(
         decoder.parameters()
     )
-    optimizer = optim.Adam(params, lr=3e-4)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
+    optimizer = optim.Adam(params, lr=1e-4)
+    # Since you can only run once, we might not need a scheduler
+    # Adjust learning rate manually if needed
+
+    # Prepare image to captions mapping for evaluation
+    val_image2captions = prepare_image2captions(val_images, captions_seqs, idx2word)
 
     # Training settings
-    num_epochs = 10
+    num_epochs = 2  # Adjust as needed
     total_step = len(train_loader)
     end_token_idx = word2idx["<end>"]
 
-    # Prepare validation image IDs and references for metrics
-    val_image_ids = val_images
-    image2captions = prepare_image2captions(val_image_ids, captions_seqs, idx2word)
-
+    # Training loop
     for epoch in range(num_epochs):
         start_time = time.time()
         encoder.train()
         decoder.train()
         total_loss = 0
 
-        for i, (images, captions, lengths) in enumerate(train_loader):
+        for i, (images, captions, caplens) in enumerate(train_loader):
             images = images.to(device)
             captions = captions.to(device)
+            caplens = torch.tensor(caplens).to(device)
 
             # Forward pass
             features = encoder(images)
-            outputs = decoder(features, captions)
 
-            # Prepare targets
-            targets = captions[:, 1:]  # Exclude the first <start> token
+            scores, caps_sorted, decode_lengths = decoder(features, captions, caplens)
 
-            # Exclude the first time step from outputs
-            # outputs = outputs[
-            #     :, 1:, :
-            # ]  # Now outputs and targets have the same sequence length
+            # since we decoded starting with <start>, the targets are all words after <start>, up to <end>
+            targets = caps_sorted[:, 1:]
 
-            # Reshape for loss computation
-            outputs = outputs.reshape(-1, vocab_size)
-            targets = targets.reshape(-1)
+            # remove timesteps we didn't decode at, or are pads
+            scores_packed_seq = nn.utils.rnn.pack_padded_sequence(
+                scores, decode_lengths, batch_first=True
+            )
+            targets_packed_seq = nn.utils.rnn.pack_padded_sequence(
+                targets, decode_lengths, batch_first=True
+            )
+            scores = scores_packed_seq.data
+            targets = targets_packed_seq.data
 
             # Compute loss
-            loss = criterion(outputs, targets)
+            loss_ce = criterion_ce(scores, targets)
 
             # Backward and optimize
             optimizer.zero_grad()
-            loss.backward()
+            loss_ce.backward()
             nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=5)
             optimizer.step()
 
-            total_loss += loss.item()
+            total_loss += loss_ce.item()
 
-            if i % 300 == 0:
+            if i % 500 == 0:
                 print(
-                    f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss.item():.4f}"
+                    f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{total_step}], Loss: {loss_ce.item():.4f}"
                 )
 
-        # Calculate average training loss
+        # Calculate average training loss for the epoch
         avg_train_loss = total_loss / total_step
-        train_losses.append(avg_train_loss)
-
-        # Adjust learning rate
-        scheduler.step()
 
         # Validation
         val_loss = evaluate(
             encoder,
             decoder,
             val_loader,
-            criterion,
+            criterion_ce,
             device,
             vocab_size,
-            has_extra_timestep=False,
-        )
-        print(
-            f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.4f}, Validation Loss: {val_loss:.4f}"
+            caplens_required=True,
         )
 
         # Calculate evaluation metrics
         bleu = calculate_bleu_score(
-            encoder=encoder,
-            decoder=decoder,
-            image_dir=image_dir,
-            image_ids=val_image_ids,
-            image2captions=image2captions,
-            transform=val_transform,
-            idx2word=idx2word,
-            device=device,
-            word2idx=word2idx,
+            encoder,
+            decoder,
+            image_dir,
+            val_images,
+            val_image2captions,
+            val_transform,
+            idx2word,
+            device,
+            word2idx,
+            requires_wordmap=True,
         )
-
         meteor = calculate_meteor_score(
-            encoder=encoder,
-            decoder=decoder,
-            image_dir=image_dir,
-            image_ids=val_image_ids,
-            image2captions=image2captions,
-            transform=val_transform,
-            idx2word=idx2word,
-            device=device,
-            word2idx=word2idx,
+            encoder,
+            decoder,
+            image_dir,
+            val_images,
+            val_image2captions,
+            val_transform,
+            idx2word,
+            device,
+            word2idx,
+            requires_wordmap=True,
         )
-
         cider = calculate_cider_score(
-            encoder=encoder,
-            decoder=decoder,
-            image_dir=image_dir,
-            image_ids=val_image_ids,
-            image2captions=image2captions,
-            transform=val_transform,
-            idx2word=idx2word,
-            device=device,
-            word2idx=word2idx,
+            encoder,
+            decoder,
+            image_dir,
+            val_images,
+            val_image2captions,
+            val_transform,
+            idx2word,
+            device,
+            word2idx,
+            requires_wordmap=True,
         )
 
-        end_time = time.time()
-        epoch_time = end_time - start_time
-
-        print(f"Epoch [{epoch+1}/{num_epochs}] completed in {epoch_time:.2f} seconds.")
+        # Print epoch summary
+        epoch_duration = time.time() - start_time
         print(
-            f"BLEU Score: {bleu:.4f}, METEOR Score: {meteor:.4f}, CIDEr Score: {cider:.4f}\n"
+            f"Epoch [{epoch+1}/{num_epochs}], "
+            f"Training Loss: {avg_train_loss:.4f}, "
+            f"Validation Loss: {val_loss:.4f}, "
+            f"BLEU: {bleu:.4f}, "
+            f"METEOR: {meteor:.4f}, "
+            f"CIDEr: {cider:.4f}, "
+            f"Time: {epoch_duration:.2f}s"
         )
 
+        # Append average training loss instead of total loss
+        train_losses.append(avg_train_loss)
         val_losses.append(val_loss)
         bleu_scores.append(bleu)
         meteor_scores.append(meteor)

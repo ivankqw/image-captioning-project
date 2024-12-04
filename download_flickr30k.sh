@@ -12,14 +12,13 @@ cat flickr30k_part00 flickr30k_part01 flickr30k_part02 > flickr30k.zip
 rm flickr30k_part00 flickr30k_part01 flickr30k_part02
 
 # Check if the data directory exists
-if [ ! -d "../flickr_data" ]; then
-    mkdir "../flickr_data"
+if [ ! -d "flickr_data" ]; then
+    mkdir "flickr_data"
 fi
 
 # Unzip the Flickr30k dataset into a flickr30k directory
-unzip -q flickr30k.zip -d ../flickr_data/Flickr30k_Dataset
+unzip -q flickr30k.zip -d flickr_data/Flickr30k_Dataset
 
 # Remove the zip file
 rm flickr30k.zip
 echo "Downloaded Flickr30k dataset successfully."
-

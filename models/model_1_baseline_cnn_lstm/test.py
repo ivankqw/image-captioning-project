@@ -132,7 +132,7 @@ def main():
 
     # Generate captions on test images
     for i, (images, captions, image_ids) in enumerate(test_loader):
-        if i >= 10:
+        if i >= 6:
             break  # Stop after processing 10 images
 
         images = images.to(device)

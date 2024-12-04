@@ -12,26 +12,10 @@ from data.preprocessing import (
     build_vocabulary,
     convert_captions_to_sequences,
     get_splits,
-    prepare_image2captions,
+    prepare_image2captions
 )
-from model import EncoderBUAttention, DecoderWithTransformer
+from model import DecoderRNN, EncoderCNN
 import nltk
-
-# embed_dim = 1024  # dimension of word embeddings
-# attention_dim = 1024  # dimension of attention linear layers
-# decoder_dim = 1024  # dimension of decoder RNN
-# dropout = 0.5
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# print(f"Using device: {device}")
-embed_dim = 1024  # Dimension of word embeddings
-attention_dim = 1024  # Dimension for attention network
-decoder_dim = 1024  # Dimension of transformer's feed-forward network
-num_layers = 6  # Number of transformer layers
-num_heads = 8  # Number of attention heads
-dropout = 0.1  # Dropout rate
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
 
 def main():
     parser = argparse.ArgumentParser(description="Test image captioning model.")
@@ -51,14 +35,16 @@ def main():
     parser.add_argument(
         "--model_dir",
         type=str,
-        default="models/model_6_butd_trans_att",
+        default="models/model_2_image_segmentation_lstm",
         help="Directory for models",
     )
     args = parser.parse_args()
 
     # Paths
     dataset_dir = os.path.join(args.data_dir, f"{args.dataset}_Dataset/Images")
-    captions_file = os.path.join(args.data_dir, f"{args.dataset}_Dataset/captions.txt")
+    captions_file = os.path.join(
+        args.data_dir, f"{args.dataset}_Dataset/captions.txt"
+    )
     image_dir = dataset_dir
 
     # Load captions
@@ -82,33 +68,39 @@ def main():
 
     # Create test dataset and data loader
     test_dataset = FlickrDataset(
-        image_dir, test_images, captions_seqs, transform=test_transform, mode="test"
+        image_dir, test_images, captions_seqs, transform=test_transform, mode='test'
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=1,  # Process one image at a time
         shuffle=False,
-        collate_fn=collate_fn,
+        collate_fn=collate_fn, 
         num_workers=2,
     )
 
+    # Device configuration
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    # Initialize models
+    embed_size = 256
+    hidden_size = 512
     vocab_size = len(word2idx)
-    encoder = EncoderBUAttention(device=device).to(device)
-    decoder = DecoderWithTransformer(
-        attention_dim=attention_dim,
-        embed_dim=embed_dim,
-        decoder_dim=decoder_dim,
-        vocab_size=vocab_size,
-        num_layers=num_layers,
-        num_heads=num_heads,
-        dropout=dropout,
-        device=device,
+    input_size = embed_size  # As per EncoderCNN's output
+
+    # Initialize EncoderCNN with device
+    encoder = EncoderCNN(embed_size=embed_size, device=device).to(device)
+    decoder = DecoderRNN(
+        input_size=input_size,
+        embed_size=embed_size,
+        hidden_size=hidden_size,
+        vocab_size=vocab_size
     ).to(device)
 
     # Load trained models
     encoder_path = os.path.join(args.model_dir, "encoder.pth")
     decoder_path = os.path.join(args.model_dir, "decoder.pth")
-
+    
     if not os.path.exists(encoder_path) or not os.path.exists(decoder_path):
         print(f"Model files not found in {args.model_dir}. Please check the path.")
         return
@@ -122,46 +114,63 @@ def main():
 
     encoder.eval()
     decoder.eval()
-    end_token_idx = word2idx.get("<end>", None)
+
+    # Retrieve <end> and <start> token indices
+    end_token_idx = word2idx.get('<end>', None)
+    start_token_idx = word2idx.get('<start>', None)
 
     if end_token_idx is None:
         print("The vocabulary does not contain an <end> token.")
         return
+    if start_token_idx is None:
+        print("The vocabulary does not contain a <start> token.")
+        return
 
     # Generate captions on test images
     for i, (images, captions, image_ids) in enumerate(test_loader):
-        if i >= 10:
-            break  # Stop after processing 10 images
+        if i >= 6:
+            break  # Stop after processing 6 images
 
         images = images.to(device)
         with torch.no_grad():
-            features = encoder(images)
+            # Forward pass through encoder
+            global_features, object_features = encoder(images)
+
+            # Forward pass through decoder's sample method with correct arguments
             sampled_ids = decoder.sample(
-                features, end_token_idx=end_token_idx, word_map=word2idx
+                global_features,
+                object_features,
+                start_token_idx=start_token_idx,
+                end_token_idx=end_token_idx
             )
 
         # Convert word IDs to words
-        sampled_caption = [idx2word.get(word_id, "<unk>") for word_id in sampled_ids]
-        generated_caption = " ".join(sampled_caption)
+        sampled_caption = [idx2word.get(word_id, '<unk>') for word_id in sampled_ids]
+
+        # Remove words after (and including) the '<end>' token
+        if '<end>' in sampled_caption:
+            end_index = sampled_caption.index('<end>')
+            sampled_caption = sampled_caption[:end_index]
+
+        generated_caption = ' '.join(sampled_caption)
 
         # Get ground truth captions
         image_name = image_ids[0]
         gt_captions = test_image2captions.get(image_name, [])
 
         if not gt_captions:
-            print(f"Image ID: {image_name}")
-            print("Generated Caption:", generated_caption)
-            print("Ground Truth Captions: None")
-            print("------------------------------------")
+            print(f'Image ID: {image_name}')
+            print('Generated Caption:', generated_caption)
+            print('Ground Truth Captions: None')
+            print('------------------------------------')
             continue
 
-        print(f"Image ID: {image_name}")
-        print(f"Generated Caption: {generated_caption}")
-        print("Ground Truth Captions:")
+        print(f'Image ID: {image_name}')
+        print(f'Generated Caption: {generated_caption}')
+        print('Ground Truth Captions:')
         for gt_caption in gt_captions:
-            print(f"- {gt_caption}")
-        print("------------------------------------")
-
+            print(f'- {gt_caption}')
+        print('------------------------------------')
 
 if __name__ == "__main__":
     main()

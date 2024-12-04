@@ -3,19 +3,21 @@ import os
 import random
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
 from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
 
 # Ensure reproducibility
 torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
+
+from metrics import *
+from model import DecoderWithTransformer, EncoderBUAttention
 
 from data.dataset import FlickrDataset, collate_fn, get_transform
 from data.preprocessing import (
@@ -24,8 +26,6 @@ from data.preprocessing import (
     get_splits,
     prepare_image2captions,
 )
-from model import EncoderBUAttention, DecoderWithTransformer
-from metrics import *
 
 # Adjust hyperparameters
 embed_dim = 1024  # Dimension of word embeddings
