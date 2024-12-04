@@ -325,13 +325,15 @@ class DecoderWithAttention(nn.Module):
         c_t = torch.zeros(1, self.decoder_dim).to(self.device)
 
         inputs_mean = inputs.mean(1)
+        current_word = torch.tensor([word_map["<start>"]], device=self.device)
 
         for _ in range(max_len):
-            embeddings = self.embedding(
-                torch.tensor([word_map["<start>"]], device=self.device)
-            ).squeeze(
-                1
-            )  # (1, embed_dim)
+            # embeddings = self.embedding(
+            #     torch.tensor([word_map["<start>"]], device=self.device)
+            # ).squeeze(
+            #     1
+            # )  # (1, embed_dim)
+            embeddings = self.embedding(current_word).squeeze(1)
             h1, c1 = self.top_down_attention(
                 torch.cat([h_t, inputs_mean, embeddings], dim=1),
                 (h_t, c_t),
@@ -348,8 +350,9 @@ class DecoderWithAttention(nn.Module):
             if predicted.item() == end_token_idx:
                 break  # Stop if <end> token is generated
 
-            # Prepare input for next time step
-            inputs = self.embedding(predicted)
+            # # Prepare input for next time step
+            # inputs = self.embedding(predicted)
+            current_word = predicted
 
         return sampled_ids
 
