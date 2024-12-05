@@ -235,27 +235,29 @@ class DecoderRNN(nn.Module):
         super(DecoderRNN, self).__init__()
         self.hidden_size = hidden_size
 
-        # Embedding layer to convert word indices to embeddings
+        # Embedding layer
         self.embedding = nn.Embedding(vocab_size, embed_size)
-        # Feature projection layer to map encoder features to embedding size
+
+        # Feature projection layer
         self.feature_proj = nn.Linear(input_size, embed_size)
+
         # Initialize hidden and cell state from features
-        self.init_hidden = nn.Linear(embed_size, hidden_size)
-        self.init_cell = nn.Linear(embed_size, hidden_size)
-        # Custom LSTM cell
-        self.lstm_cell = LSTM(embed_size + embed_size, hidden_size)
-        # Attention layer
-        self.attention = nn.Linear(hidden_size + embed_size, 1)
-        # Fully connected layer to project hidden state to vocabulary space
+        self.init_hidden = nn.Linear(embed_size * 2, hidden_size)
+        self.init_cell = nn.Linear(embed_size * 2, hidden_size)
+
+        # LSTM layer using nn.LSTMCell
+        self.lstm = nn.LSTMCell(embed_size + embed_size * 2, hidden_size)
+
+        # Fully connected layer
         self.fc = nn.Linear(hidden_size, vocab_size)
-        # Dropout layer for regularization
+
+        # Dropout
         self.dropout = nn.Dropout(dropout)
 
         # Initialize weights
         self.init_weights()
 
     def init_weights(self):
-        """Initialize weights for embedding, feature projection, and fully connected layers."""
         nn.init.uniform_(self.embedding.weight, -0.1, 0.1)
         nn.init.uniform_(self.fc.weight, -0.1, 0.1)
         nn.init.constant_(self.fc.bias, 0)
@@ -284,45 +286,33 @@ class DecoderRNN(nn.Module):
         # Project the combined features to embed_size
         features = self.feature_proj(global_features)  # Shape: (batch_size, embed_size)
 
+        # Compute the mean of object features
+        object_features_mean = object_features.mean(dim=1)  # Shape: (batch_size, embed_size)
+
+        # Concatenate global features and object features
+        combined_features = torch.cat((features, object_features_mean), dim=1)  # Shape: (batch_size, embed_size * 2)
+
         # Embed the captions (exclude the last word for teacher forcing)
         embeddings = self.embedding(captions[:, :-1])  # Shape: (batch_size, seq_len - 1, embed_size)
-        # Concatenate image features as the first input
-        embeddings = torch.cat((features.unsqueeze(1), embeddings), dim=1)  # Shape: (batch_size, seq_len, embed_size)
         embeddings = self.dropout(embeddings)
 
-        batch_size, seq_len, _ = embeddings.size()
-        outputs = torch.zeros(batch_size, seq_len, self.fc.out_features).to(device)
+        # Initialize hidden and cell states based on combined features
+        h_t = self.init_hidden(combined_features)  # Shape: (batch_size, hidden_size)
+        c_t = self.init_cell(combined_features)    # Shape: (batch_size, hidden_size)
 
-        # Initialize hidden and cell states based on features
-        h_t = self.init_hidden(features)  # Shape: (batch_size, hidden_size)
-        c_t = self.init_cell(features)    # Shape: (batch_size, hidden_size)
+        # Prepare inputs by concatenating embeddings with combined features
+        combined_features_expanded = combined_features.unsqueeze(1).expand(-1, embeddings.size(1), -1)
+        lstm_inputs = torch.cat((embeddings, combined_features_expanded), dim=2)  # Shape: (batch_size, seq_len - 1, embed_size + embed_size * 2)
 
-        max_objects = object_features.size(1)  # Number of object features
-
-        # Unroll the LSTM for seq_len time steps
-        for t in range(seq_len):
-            x_t = embeddings[:, t, :]  # Input at time step t
-
-            # Compute attention weights
-            h_expanded = h_t.unsqueeze(1).expand(-1, max_objects, -1)  # (batch_size, max_objects, hidden_size)
-            attn_input = torch.cat((h_expanded, object_features), dim=2)  # (batch_size, max_objects, hidden_size + embed_size)
-            attn_weights = self.attention(attn_input).squeeze(2)  # (batch_size, max_objects)
-            attn_weights = torch.softmax(attn_weights, dim=1)
-
-            # Compute context vector
-            context = torch.bmm(attn_weights.unsqueeze(1), object_features).squeeze(1)  # (batch_size, embed_size)
-
-            # Combine input with context
-            lstm_input = torch.cat((x_t, context), dim=1)  # (batch_size, embed_size + embed_size)
-            lstm_input = self.dropout(lstm_input)
-
-            # Update hidden and cell states
-            h_t, c_t = self.lstm_cell(lstm_input, h_t, c_t)  # Update hidden and cell states
-
-            # Compute output word distribution
+        # Unroll the LSTM
+        outputs = []
+        for t in range(lstm_inputs.size(1)):
+            x_t = lstm_inputs[:, t, :]  # Input at time step t
+            h_t, c_t = self.lstm(x_t, (h_t, c_t))  # Update hidden and cell states
             output = self.fc(h_t)  # Shape: (batch_size, vocab_size)
-            outputs[:, t, :] = output  # Store output
+            outputs.append(output.unsqueeze(1))  # Append output for each time step
 
+        outputs = torch.cat(outputs, dim=1)  # Shape: (batch_size, seq_len - 1, vocab_size)
         return outputs
 
     def sample(self, global_features, object_features, start_token_idx, max_len=20, end_token_idx=None):
@@ -344,46 +334,41 @@ class DecoderRNN(nn.Module):
         # Project the combined features to embed_size
         features = self.feature_proj(global_features)  # Shape: (batch_size, embed_size)
 
-        sampled_ids = []
+        # Compute the mean of object features
+        object_features_mean = object_features.mean(dim=1)  # Shape: (batch_size, embed_size)
+
+        # Concatenate global features and object features
+        combined_features = torch.cat((features, object_features_mean), dim=1)  # Shape: (batch_size, embed_size * 2)
+
+        # Initialize hidden and cell states based on combined features
+        h_t = self.init_hidden(combined_features)  # Shape: (batch_size, hidden_size)
+        c_t = self.init_cell(combined_features)    # Shape: (batch_size, hidden_size)
+
         # Initialize input with <start> token
         inputs = torch.tensor([start_token_idx], dtype=torch.long).to(device)  # Shape: (1,)
 
-        # Initialize hidden and cell states based on features
-        h_t = self.init_hidden(features)  # Shape: (batch_size, hidden_size)
-        c_t = self.init_cell(features)    # Shape: (batch_size, hidden_size)
-
-        max_objects = object_features.size(1)  # Number of object features
+        sampled_ids = []
 
         for _ in range(max_len):
             # Embed the current input
-            embed = self.embedding(inputs)  # Shape: (batch_size, embed_size)
+            embed = self.embedding(inputs).squeeze(0)  # Shape: (embed_size,)
             embed = self.dropout(embed)
 
-            # Compute attention weights
-            h_expanded = h_t.unsqueeze(1).expand(-1, max_objects, -1)  # (batch_size, max_objects, hidden_size)
-            attn_input = torch.cat((h_expanded, object_features), dim=2)  # (batch_size, max_objects, hidden_size + embed_size)
-            attn_weights = self.attention(attn_input).squeeze(2)  # (batch_size, max_objects)
-            attn_weights = torch.softmax(attn_weights, dim=1)
-
-            # Compute context vector
-            context = torch.bmm(attn_weights.unsqueeze(1), object_features).squeeze(1)  # (batch_size, embed_size)
-
-            # Combine input with context
-            lstm_input = torch.cat((embed, context), dim=1)  # (batch_size, embed_size + embed_size)
-            lstm_input = self.dropout(lstm_input)
+            # Concatenate embedding with combined features
+            lstm_input = torch.cat((embed, combined_features.squeeze(0)), dim=0)  # Shape: (embed_size + embed_size * 2,)
 
             # Update hidden and cell states
-            h_t, c_t = self.lstm_cell(lstm_input, h_t, c_t)  # Update hidden and cell states
+            h_t, c_t = self.lstm(lstm_input.unsqueeze(0), (h_t, c_t))  # Shape: (1, hidden_size)
 
             # Compute output word distribution
-            output = self.fc(h_t)  # Shape: (batch_size, vocab_size)
-            predicted = output.argmax(1)  # Shape: (batch_size,)
+            output = self.fc(h_t.squeeze(0))  # Shape: (vocab_size,)
+            predicted = output.argmax(0)  # Get the index of the max log-probability
             sampled_ids.append(predicted.item())
 
             if predicted.item() == end_token_idx:
                 break  # Stop if <end> token is generated
 
             # Prepare input for next time step
-            inputs = predicted  # Shape: (batch_size,)
-        
+            inputs = predicted.unsqueeze(0)  # Shape: (1,)
+
         return sampled_ids
