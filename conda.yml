@@ -23,6 +23,8 @@ dependencies:
   - conda-forge::fastapi
   - conda-forge::streamlit  
   - conda-forge::python-multipart
+  - conda-forge::peft
+  - conda-forge::transformers
   - pip:
     - torchvision
     - pycocoevalcap
