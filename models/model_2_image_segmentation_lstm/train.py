@@ -50,7 +50,7 @@ def main():
     print(f"Total captions loaded: {len(caption_df)}")
 
     # Build vocabulary
-    word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=5000)
+    word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=10000)
     print(f"Vocabulary size: {len(word2idx)}")
 
     # Convert captions to sequences
@@ -99,13 +99,12 @@ def main():
     embed_size = 256
     hidden_size = 512
     vocab_size = len(word2idx)
-    input_size = embed_size  # Must match EncoderCNN's embed_size
     top_k = 5  # Number of objects to consider
 
     # Initialize encoder and decoder
     encoder = EncoderCNN(embed_size=embed_size, device=device, top_k=top_k).to(device)
     decoder = DecoderRNN(
-        input_size=input_size,
+        input_size=embed_size,
         embed_size=embed_size,
         hidden_size=hidden_size,
         vocab_size=vocab_size,
@@ -115,7 +114,15 @@ def main():
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss(ignore_index=word2idx["<pad>"])
     params = list(encoder.parameters()) + list(decoder.parameters())
-    optimizer = optim.Adam(params, lr=1e-4, weight_decay=1e-4)
+    optimizer = optim.Adam(params, lr=5e-4, weight_decay=3e-4)
+
+    # Initialize the learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',           # We want to minimize the validation loss
+        factor=0.5,           # Factor by which the learning rate will be reduced
+        patience=2,           # Number of epochs with no improvement after which learning rate will be reduced
+    )
     
     # Prepare image to captions mapping for evaluation
     val_image2captions = prepare_image2captions(val_images, captions_seqs, idx2word)
@@ -138,10 +145,8 @@ def main():
 
             # Forward pass
             global_features, object_features = encoder(images)
-            outputs = decoder(global_features, object_features, captions)
+            outputs = decoder(global_features, object_features, captions)  # No slicing
 
-            # Exclude the first time step from outputs and targets
-            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1, vocab_size)
             targets = captions[:, 1:]     # Shape: (batch_size, seq_len -1)
 
             # Reshape outputs and targets for loss computation
@@ -169,6 +174,9 @@ def main():
 
         # Validation
         val_loss = evaluate(encoder, decoder, val_loader, criterion, device, vocab_size)
+
+        # Step the scheduler with the validation loss
+        scheduler.step(val_loss)
 
         # Calculate evaluation metrics
         bleu = calculate_bleu_score(

@@ -10,36 +10,34 @@ from PIL import Image
 def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
     """
     Evaluate the model on the validation set.
-    Args:
-        encoder: Encoder model.
-        decoder: Decoder model.
-        data_loader: DataLoader for the validation set.
-        criterion: Loss function.
-        device: Computation device (CPU or GPU).
-        vocab_size: Size of the vocabulary.
-    Returns:
-        average_loss: Average validation loss.
-    """
-    encoder.eval()  # Set encoder to evaluation mode
-    decoder.eval()  # Set decoder to evaluation mode
-    total_loss = 0
-    total_samples = 0
 
-    with torch.no_grad():  # Disable gradient computation for evaluation
+    Args:
+        encoder (EncoderCNN): The encoder model.
+        decoder (DecoderRNN): The decoder model.
+        data_loader (DataLoader): DataLoader for the validation set.
+        criterion (nn.Module): Loss function.
+        device (torch.device): Device to run the evaluation on.
+        vocab_size (int): Size of the vocabulary.
+
+    Returns:
+        float: Average validation loss.
+    """
+    encoder.eval()
+    decoder.eval()
+    total_loss = 0
+    total_batches = 0
+
+    with torch.no_grad():
         for images, captions, _ in data_loader:
-            # Move data to the computation device
             images = images.to(device)
             captions = captions.to(device)
 
-            # Forward pass through encoder
+            # Forward pass
             global_features, object_features = encoder(images)
+            outputs = decoder(global_features, object_features, captions)  # Shape: (batch_size, seq_len -1, vocab_size)
 
-            # Forward pass through decoder with correct arguments
-            outputs = decoder(global_features, object_features, captions)
-
-            # Exclude the first time step from outputs and targets
-            outputs = outputs[:, 1:, :]  # Shape: (batch_size, seq_len -1, vocab_size)
-            targets = captions[:, 1:]     # Shape: (batch_size, seq_len -1)
+            # Targets are the next words in the captions
+            targets = captions[:, 1:]  # Shape: (batch_size, seq_len -1)
 
             # Reshape outputs and targets for loss computation
             outputs = outputs.reshape(-1, vocab_size)  # Shape: (batch_size * (seq_len -1), vocab_size)
@@ -48,10 +46,9 @@ def evaluate(encoder, decoder, data_loader, criterion, device, vocab_size):
             # Compute loss
             loss = criterion(outputs, targets)
             total_loss += loss.item()
-            total_samples += 1
+            total_batches += 1
 
-    # Calculate average loss
-    average_loss = total_loss / total_samples
+    average_loss = total_loss / total_batches
     return average_loss
 
 # Function to calculate BLEU score for generated captions

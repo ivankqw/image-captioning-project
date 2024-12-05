@@ -51,7 +51,7 @@ def main():
     caption_df = pd.read_csv(captions_file).dropna().drop_duplicates()
 
     # Build vocabulary
-    word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=5000)
+    word2idx, idx2word, image_captions = build_vocabulary(caption_df, vocab_size=8921)
 
     # Convert captions to sequences
     captions_seqs, max_length = convert_captions_to_sequences(image_captions, word2idx)
@@ -60,7 +60,7 @@ def main():
     test_transform = get_transform(train=False)
 
     # Split data into training, validation, and test sets
-    image_names = list(image_captions.keys())
+    image_names = list(captions_seqs.keys())
     _, _, test_images = get_splits(image_names, test_size=0.2)
 
     # Prepare image to captions mapping for ground truth captions
@@ -89,21 +89,18 @@ def main():
     input_size = embed_size  # As per EncoderCNN's output
 
     # Initialize EncoderCNN with device
-    encoder = EncoderCNN(embed_size=embed_size, device=device).to(device)
+    encoder = EncoderCNN(embed_size=embed_size, device=device, top_k=5).to(device)
     decoder = DecoderRNN(
         input_size=input_size,
         embed_size=embed_size,
         hidden_size=hidden_size,
-        vocab_size=vocab_size
+        vocab_size=vocab_size,
+        dropout=0.5
     ).to(device)
 
     # Load trained models
     encoder_path = os.path.join(args.model_dir, "encoder.pth")
     decoder_path = os.path.join(args.model_dir, "decoder.pth")
-    
-    if not os.path.exists(encoder_path) or not os.path.exists(decoder_path):
-        print(f"Model files not found in {args.model_dir}. Please check the path.")
-        return
 
     encoder.load_state_dict(
         torch.load(encoder_path, map_location=device, weights_only=True)
@@ -120,16 +117,14 @@ def main():
     start_token_idx = word2idx.get('<start>', None)
 
     if end_token_idx is None:
-        print("The vocabulary does not contain an <end> token.")
-        return
+        raise ValueError("The '<end>' token was not found in the vocabulary.")
     if start_token_idx is None:
-        print("The vocabulary does not contain a <start> token.")
-        return
+        raise ValueError("The '<start>' token was not found in the vocabulary.")
 
     # Generate captions on test images
     for i, (images, captions, image_ids) in enumerate(test_loader):
         if i >= 6:
-            break  # Stop after processing 6 images
+            break  # Stop after processing 10 images
 
         images = images.to(device)
         with torch.no_grad():
