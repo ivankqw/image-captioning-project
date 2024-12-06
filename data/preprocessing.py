@@ -20,7 +20,9 @@ def tokenize(text):
     return tokens
 
 
-def build_vocabulary(caption_df, vocab_size=5000, tokenizing_fn=tokenize):
+def build_vocabulary(
+    caption_df, vocab_size=5000, tokenizing_fn=tokenize, special_tokens=None
+):
     """
     Builds word-to-index and index-to-word mappings based on caption data.
     Args:
@@ -43,8 +45,9 @@ def build_vocabulary(caption_df, vocab_size=5000, tokenizing_fn=tokenize):
     all_words = [token for caption in all_captions for token in tokenizing_fn(caption)]
     word_counts = Counter(all_words)
 
-    # Define special tokens
-    special_tokens = ["<pad>", "<start>", "<end>", "<unk>"]
+    if not special_tokens:
+        # Define special tokens
+        special_tokens = ["<pad>", "<start>", "<end>", "<unk>"]
 
     # Initialize word-to-index and index-to-word mappings
     word2idx = {token: idx for idx, token in enumerate(special_tokens)}
@@ -91,6 +94,7 @@ def convert_captions_to_sequences(
                 + tokenizing_fn(caption)
                 + [special_token_mapping["end"]]
             )
+            # print(tokens)
             # Convert tokens to indices, use <unk> for unknown words
             seq = [
                 word2idx.get(token, word2idx[special_token_mapping["unk"]])
