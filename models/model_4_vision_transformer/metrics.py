@@ -55,6 +55,7 @@ def calculate_metrics(
             # Forward pass
             output: GreedySearchEncoderDecoderOutput = model.generate(
                 pixel_values=image,
+                min_length=10,
                 max_length=max_length,
                 num_beams=1,
                 do_sample=False,
