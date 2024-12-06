@@ -23,6 +23,11 @@ dependencies:
   - conda-forge::fastapi
   - conda-forge::streamlit  
   - conda-forge::python-multipart
+  - conda-forge::peft
+  - conda-forge::transformers=4.35.2
+  - conda-forge::wandb=0.15.10
   - pip:
     - torchvision
     - pycocoevalcap
+    - huggingface_hub==0.20.3
+    - accelerate==0.24.1
