@@ -29,32 +29,14 @@ To download the Flickr30k dataset
 sh download_flickr30k.sh
 ```
 
-## Usage
+## Demo Usage
 
-Training
+Feel free to select any images and see what the different model caption them as! 
 
-Change the --model arg accordingly:
-1. model_1_baseline_cnn_lstm - python run.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr8k 
-2. model_2_image_segmentation_lstm - python run.py --model model_2_image_segmentation_lstm --mode train --dataset Flickr8k 
-3. model_3_attention_image_segmentation_lstm - python run.py --model model_3_attention_image_segmentation_lstm --mode train --dataset Flickr8k 
-4. model_4_vision_transformer - python run.py --model model_4_vision_transformer --mode train --dataset Flickr8k 
+Run the following code:
 
-To train the model on Flickr8k dataset:
 ```bash
-python run.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr8k 
+uvicorn app.main:app --reload
 ```
 
-To train the model on Flickr30k dataset:
-```bash
-python run.py --model model_1_baseline_cnn_lstm --mode train --dataset Flickr30k
-```
-
-To train the model on Flickr8k dataset:
-```bash
-python run.py --model model_1_baseline_cnn_lstm --mode test --dataset Flickr8k
-```
-
-To train the model on Flickr30k dataset:
-```bash
-python run.py --model model_1_baseline_cnn_lstm --mode test --dataset Flickr30k
-```
+Enter this into your address bar: http://127.0.0.1:8000

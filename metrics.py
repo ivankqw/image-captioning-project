@@ -1,8 +1,5 @@
 import os
-
 import torch
-import torch.nn as nn
-from nltk.tokenize import word_tokenize
 from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 from nltk.translate.meteor_score import meteor_score
 from PIL import Image
