@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Captioning Demo</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .centered-container {
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 30px;
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="centered-container text-center">
+            <h1>Image Captioning Demo</h1>
+            <form action="/gallery" method="get">
+                <div class="mb-3">
+                    <label for="modelSelect" class="form-label">Select Model:</label>
+                    <select class="form-select" id="modelSelect" name="model" required>
+                        <option value="baseline">Baseline Model</option>
+                        <option value="segmentation">Image Segmentation Model</option>
+                        <option value="attention">Image Segmentation with Attention Model</option>
+                        <option value="vision_transformer">Vision Transformer</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">View Gallery</button>
+                <a href="/upload" class="btn btn-secondary ms-2">Upload Image</a>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

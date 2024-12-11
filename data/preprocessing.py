@@ -1,9 +1,19 @@
 import re
 from collections import Counter
-from sklearn.model_selection import train_test_split
 
 import nltk
 nltk.download('punkt')  # Ensure the Punkt tokenizer is downloaded
+
+def clean_caption(caption):
+    """
+    Cleans the input caption by removing numbers, special characters,
+    and excessive whitespace. Also standardizes punctuation.
+    """
+    caption = caption.lower()
+    caption = re.sub(r'\d+', '', caption)  # Remove numbers
+    caption = re.sub(r'[^\w\s.,]', '', caption)  # Remove non-alphanumeric chars except basic punctuation
+    caption = re.sub(r'\s+', ' ', caption).strip()  # Remove extra spaces
+    return caption
 
 def tokenize(text):
     """
@@ -17,7 +27,7 @@ def tokenize(text):
     tokens = nltk.tokenize.word_tokenize(text)
     return tokens
 
-def build_vocabulary(caption_df, vocab_size=5000):
+def build_vocabulary(caption_df, vocab_size=8000):
     """
     Builds word-to-index and index-to-word mappings based on caption data.
     Args:
@@ -28,15 +38,8 @@ def build_vocabulary(caption_df, vocab_size=5000):
         idx2word (dict): Mapping from indices to words.
         image_captions (dict): Mapping from image filenames to their captions.
     """
-    # Group captions by image
     image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
-
-    # Collect all captions
-    all_captions = [
-        caption for captions in image_captions.values() for caption in captions
-    ]
-
-    # Tokenize all captions and count word frequencies
+    all_captions = [caption for captions in image_captions.values() for caption in captions]
     all_words = [token for caption in all_captions for token in tokenize(caption)]
     word_counts = Counter(all_words)
 
@@ -71,37 +74,13 @@ def convert_captions_to_sequences(image_captions, word2idx):
     for img_name, captions in image_captions.items():
         seqs = []
         for caption in captions:
-            # Tokenize and add start and end tokens
             tokens = ["<start>"] + tokenize(caption) + ["<end>"]
-            # Convert tokens to indices, use <unk> for unknown words
             seq = [word2idx.get(token, word2idx["<unk>"]) for token in tokens]
             seqs.append(seq)
-            # Update maximum caption length
             max_length = max(max_length, len(seq))
         captions_seqs[img_name] = seqs
 
     return captions_seqs, max_length
-
-def get_splits(image_names, test_size=0.2):
-    """
-    Splits the dataset into training, validation, and test sets.
-    Args:
-        image_names (list): List of image filenames.
-        test_size (float): Proportion of the dataset to include in the test split.
-    Returns:
-        train_images (list): List of training image filenames.
-        val_images (list): List of validation image filenames.
-        test_images (list): List of test image filenames.
-    """
-    # Split into training and temp (validation + test) sets
-    train_images, temp_images = train_test_split(
-        image_names, test_size=test_size, random_state=42
-    )
-    # Split temp set into validation and test sets
-    val_images, test_images = train_test_split(
-        temp_images, test_size=0.1, random_state=42
-    )
-    return train_images, val_images, test_images
 
 def prepare_image2captions(image_ids, captions_seqs, idx2word):
     """
@@ -118,9 +97,7 @@ def prepare_image2captions(image_ids, captions_seqs, idx2word):
         seqs = captions_seqs[img_id]
         captions_list = []
         for seq in seqs:
-            # Convert indices back to words
             caption = [idx2word.get(idx, "<unk>") for idx in seq]
-            # Remove special tokens
             caption = [
                 word.lower()
                 for word in caption

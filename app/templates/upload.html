@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Image - Image Captioning Demo</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .upload-container {
+            max-width: 800px; /* Improved layout */
+            margin: 50px auto;
+            padding: 30px;
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .uploaded-image {
+            width: 100%; /* Full image display */
+            height: auto; /* Maintain aspect ratio */
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .caption-box {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="upload-container">
+            <h1 class="text-center mb-4">Upload an Image</h1>
+            
+            <!-- Upload New Image Form -->
+            <form action="/upload" method="post" enctype="multipart/form-data" class="mb-5">
+                <h3>Upload New Image</h3>
+                <div class="mb-3">
+                    <label for="file" class="form-label">Select Image:</label>
+                    <input class="form-control" type="file" id="file" name="file" accept="image/*" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Upload Image</button>
+            </form>
+
+            <!-- Generate Caption for Existing Image Form -->
+            {% if uploaded_images %}
+                <form action="/generate_caption" method="post" class="mb-5">
+                    <h3>Generate Caption for Existing Image</h3>
+                    <div class="mb-3">
+                        <label for="existingImageSelect" class="form-label">Select Image:</label>
+                        <select class="form-select" id="existingImageSelect" name="image_name" required>
+                            {% for image in uploaded_images %}
+                                <option value="{{ image }}">{{ image }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelSelectExisting" class="form-label">Select Model:</label>
+                        <select class="form-select" id="modelSelectExisting" name="model" required>
+                            <option value="baseline">Baseline Model</option>
+                            <option value="segmentation">Image Segmentation Model</option>
+                            <option value="attention">Image Segmentation with Attention Model</option>
+                            <option value="vision_transformer">Vision Transformer</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Generate Caption</button>
+                </form>
+            {% endif %}
+
+            <!-- Display Uploaded Image and Caption -->
+            {% if uploaded_image and generated_caption %}
+                <hr>
+                <h3 class="mt-4">Uploaded Image:</h3>
+                <img src="{{ uploaded_image }}" alt="Uploaded Image" class="uploaded-image">
+                <div class="caption-box">
+                    <h5>Generated Caption:</h5>
+                    <p>{{ generated_caption }}</p>
+                </div>
+            {% elif error %}
+                <hr>
+                <div class="alert alert-danger mt-4" role="alert">
+                    {{ error }}
+                </div>
+            {% endif %}
+
+            <div class="text-center mt-4">
+                <a href="/" class="btn btn-secondary">Back to Home</a>
+                <a href="/gallery" class="btn btn-secondary ms-2">View Gallery</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

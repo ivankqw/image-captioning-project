@@ -3,9 +3,9 @@ import torch.nn as nn
 import torchvision.models as models
 from torchvision.models import ResNet50_Weights
 
-class EncoderCNN(nn.Module):
+class Encoder(nn.Module):
     def __init__(self, embed_size=256):
-        super(EncoderCNN, self).__init__()
+        super(Encoder, self).__init__()
         # Load the pre-trained ResNet-50 model
         resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)
         # Remove the last fully connected layer to get feature maps
@@ -81,9 +81,9 @@ class LSTM(nn.Module):
         h_t = o_t * torch.tanh(c_t)
         return h_t, c_t
 
-class DecoderRNN(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, embed_size=256, hidden_size=512, vocab_size=5000, dropout=0.5):
-        super(DecoderRNN, self).__init__()
+        super(Decoder, self).__init__()
         # Embedding layer to convert word indices to embeddings
         self.embedding = nn.Embedding(vocab_size, embed_size)
         # Custom LSTM cell
@@ -132,7 +132,7 @@ class DecoderRNN(nn.Module):
 
         return outputs
 
-    def sample(self, features, max_len=20, end_token_idx=None):
+    def sample(self, features, max_len=40, end_token_idx=None):
         """
         Generate captions for given image features using greedy search.
         Args:

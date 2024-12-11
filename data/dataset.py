@@ -26,36 +26,29 @@ class FlickrDataset(Dataset):
         self.image_dir = image_dir
         self.transform = transform
         self.mode = mode
-        self.images = []
-        self.captions = []
-        self.image_ids = []
+        self.image_ids = image_ids
+        self.captions_seqs = captions_seqs
 
         if self.mode == 'train':
-            # Pair each image with its captions for training
+            self.images = []
+            self.captions = []
             for img_id in image_ids:
                 captions = captions_seqs[img_id]
                 for caption_seq in captions:
                     self.images.append(img_id)
                     self.captions.append(caption_seq)
         elif self.mode == 'test':
-            # For testing, pair each image with all its captions
-            for img_id in image_ids:
-                captions = captions_seqs[img_id]
-                # Optionally, you can choose to handle multiple captions per image
-                # Here, we'll keep one caption per image for simplicity
-                if captions:
-                    caption_seq = random.choice(captions)
-                else:
-                    caption_seq = []  # Handle images without captions appropriately
-                self.images.append(img_id)
-                self.captions.append(caption_seq)
-                self.image_ids.append(img_id)
+            # For testing, we directly work with image_ids and choose one caption per image
+            # (You can also handle multiple captions per image if you want)
+            pass
         else:
             raise ValueError("Mode should be either 'train' or 'test'.")
 
     def __len__(self):
-        """Returns the total number of image-caption pairs."""
-        return len(self.images)
+        if self.mode == 'train':
+            return len(self.images)
+        elif self.mode == 'test':
+            return len(self.image_ids)
 
     def __getitem__(self, idx):
         """
@@ -67,8 +60,13 @@ class FlickrDataset(Dataset):
             caption_seq (Tensor): Corresponding caption sequence tensor.
             image_id (str): Filename of the image.
         """
-        img_id = self.images[idx]
-        caption_seq = self.captions[idx]
+        if self.mode == 'train':
+            img_id = self.images[idx]
+            caption_seq = self.captions[idx]
+        elif self.mode == 'test':
+            img_id = self.image_ids[idx]
+            caption_seqs = self.captions_seqs[img_id]
+            caption_seq = random.choice(caption_seqs) if caption_seqs else []
         img_path = os.path.join(self.image_dir, img_id)
 
         # Open and convert image to RGB
@@ -110,13 +108,8 @@ def collate_fn(batch):
         images, captions = zip(*batch)
         image_ids = None
 
-    # Stack images
     images = torch.stack(images, 0)
-
-    # Get lengths of each caption
     lengths = [len(cap) for cap in captions]
-
-    # Pad captions to the length of the longest caption
     max_length = max(lengths)
     targets = torch.zeros(len(captions), max_length).long()
     for i, cap in enumerate(captions):
@@ -137,23 +130,29 @@ def get_transform(train=True):
         transform (callable): Composed transformations.
     """
     if train:
-        transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.RandomCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],  # ImageNet mean
-                std=[0.229, 0.224, 0.225],   # ImageNet std
-            ),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(15),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet means
+                    std=[0.229, 0.224, 0.225],   # ImageNet stds
+                ),
+            ]
+        )
     else:
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],  # ImageNet mean
-                std=[0.229, 0.224, 0.225],   # ImageNet std
-            ),
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],  # ImageNet means
+                    std=[0.229, 0.224, 0.225],   # ImageNet stds
+                ),
+            ]
+        )
     return transform

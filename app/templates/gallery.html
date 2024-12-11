@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Gallery - {{ model|capitalize }} Model</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .gallery-container {
+            padding: 50px 0;
+        }
+        .card-img-top {
+            width: 100%;
+            height: auto; /* Ensure full image is displayed */
+            object-fit: contain; /* Ensure the entire image is visible */
+        }
+        .caption-text {
+            word-wrap: break-word;
+            /* Allow captions to use the full card width */
+        }
+        @media (max-width: 768px) {
+            .card-img-top {
+                height: auto; /* Remove height for smaller screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container gallery-container">
+        <h1 class="text-center mb-4">Gallery - {{ model|capitalize }} Model</h1>
+        <div class="row">
+            {% for img_name, caption in images_with_captions %}
+                <div class="col-lg-4 col-md-6 mb-4">
+                    <div class="card h-100">
+                        <img src="{{ url_for('flickr_images', path=img_name) }}" class="card-img-top" alt="{{ img_name }}">
+                        <div class="card-body">
+                            <p class="card-text caption-text"><strong>Caption:</strong> {{ caption }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-4">
+            <a href="/" class="btn btn-primary">Back to Home</a>
+            <a href="/upload" class="btn btn-secondary ms-2">Upload Image</a>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
