@@ -2,7 +2,9 @@ import re
 from collections import Counter
 
 import nltk
-nltk.download('punkt')  # Ensure the Punkt tokenizer is downloaded
+
+nltk.download("punkt")  # Ensure the Punkt tokenizer is downloaded
+
 
 def clean_caption(caption):
     """
@@ -41,10 +43,12 @@ def build_vocabulary(caption_df, vocab_size=8000):
     image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
     all_captions = [caption for captions in image_captions.values() for caption in captions]
     all_words = [token for caption in all_captions for token in tokenize(caption)]
+
     word_counts = Counter(all_words)
 
-    # Define special tokens
-    special_tokens = ["<pad>", "<start>", "<end>", "<unk>"]
+    if not special_tokens:
+        # Define special tokens
+        special_tokens = ["<pad>", "<start>", "<end>", "<unk>"]
 
     # Initialize word-to-index and index-to-word mappings
     word2idx = {token: idx for idx, token in enumerate(special_tokens)}
@@ -58,7 +62,10 @@ def build_vocabulary(caption_df, vocab_size=8000):
 
     return word2idx, idx2word, image_captions
 
-def convert_captions_to_sequences(image_captions, word2idx):
+
+def convert_captions_to_sequences(
+    image_captions, word2idx, special_token_mapping=None, tokenizing_fn=tokenize
+):
     """
     Converts captions to sequences of word indices.
     Args:
@@ -70,6 +77,14 @@ def convert_captions_to_sequences(image_captions, word2idx):
     """
     captions_seqs = {}
     max_length = 0
+
+    if not special_token_mapping:
+        special_token_mapping = {
+            "start": "<start>",
+            "end": "<end>",
+            "pad": "<pad>",
+            "unk": "<unk>",
+        }
 
     for img_name, captions in image_captions.items():
         seqs = []
@@ -92,6 +107,18 @@ def prepare_image2captions(image_ids, captions_seqs, idx2word):
     Returns:
         image2captions (dict): Mapping from image filenames to their captions as word lists.
     """
+    if not special_token_mapping:
+        special_token_mapping = {
+            "start": "<start>",
+            "end": "<end>",
+            "pad": "<pad>",
+            "unk": "<unk>",
+        }
+    start_end_pad = (
+        special_token_mapping["start"],
+        special_token_mapping["end"],
+        special_token_mapping["pad"],
+    )
     image2captions = {}
     for img_id in image_ids:
         seqs = captions_seqs[img_id]
