@@ -207,6 +207,7 @@ def generate_caption_for_image(image_path: str, is_vit_gpt2=False):
         )
     # Load and transform image
     image = Image.open(image_path).convert("RGB")
+    test_transform = get_transform(train=False)
     image_tensor = test_transform(image)
     caption = generate_caption_from_image_tensor(image_tensor)
     return caption
