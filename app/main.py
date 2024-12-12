@@ -175,7 +175,7 @@ def generate_caption_for_image(image_path: str, is_vit_gpt2=False):
         from transformers import GPT2TokenizerFast, VisionEncoderDecoderModel
 
         model = VisionEncoderDecoderModel.from_pretrained(
-            "nlpconnect/vit-gpt2-image-captioning"
+            "ivankqw/image-captioning-vit-gpt2"
         )
         tokenizer = GPT2TokenizerFast.from_pretrained(
             "ivankqw/image-captioning-vit-gpt2"
