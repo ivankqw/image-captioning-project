@@ -12,10 +12,13 @@ def clean_caption(caption):
     and excessive whitespace. Also standardizes punctuation.
     """
     caption = caption.lower()
-    caption = re.sub(r'\d+', '', caption)  # Remove numbers
-    caption = re.sub(r'[^\w\s.,]', '', caption)  # Remove non-alphanumeric chars except basic punctuation
-    caption = re.sub(r'\s+', ' ', caption).strip()  # Remove extra spaces
+    caption = re.sub(r"\d+", "", caption)  # Remove numbers
+    caption = re.sub(
+        r"[^\w\s.,]", "", caption
+    )  # Remove non-alphanumeric chars except basic punctuation
+    caption = re.sub(r"\s+", " ", caption).strip()  # Remove extra spaces
     return caption
+
 
 def tokenize(text):
     """
@@ -29,7 +32,8 @@ def tokenize(text):
     tokens = nltk.tokenize.word_tokenize(text)
     return tokens
 
-def build_vocabulary(caption_df, vocab_size=8000):
+
+def build_vocabulary(caption_df, vocab_size=8000, special_tokens=None):
     """
     Builds word-to-index and index-to-word mappings based on caption data.
     Args:
@@ -41,7 +45,9 @@ def build_vocabulary(caption_df, vocab_size=8000):
         image_captions (dict): Mapping from image filenames to their captions.
     """
     image_captions = caption_df.groupby("image")["caption"].apply(list).to_dict()
-    all_captions = [caption for captions in image_captions.values() for caption in captions]
+    all_captions = [
+        caption for captions in image_captions.values() for caption in captions
+    ]
     all_words = [token for caption in all_captions for token in tokenize(caption)]
 
     word_counts = Counter(all_words)
@@ -96,6 +102,7 @@ def convert_captions_to_sequences(
         captions_seqs[img_name] = seqs
 
     return captions_seqs, max_length
+
 
 def prepare_image2captions(image_ids, captions_seqs, idx2word):
     """
